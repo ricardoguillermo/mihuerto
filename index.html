@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CalendarioSiembra</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>🌱 CalendarioSiembra</h1>
+    <p>Calendario de siembra y seguimiento de tu huerto</p>
+    <a class="header-link" href="#miHuerto">Ir a mi huerto</a>
+  </header>
+
+  <main class="container">
+    <!-- CATÁLOGO -->
+    <section class="panel">
+      <h2>Catálogo de plantas</h2>
+
+      <div class="filtros">
+        <input type="text" id="buscador" placeholder="Buscar por nombre..." />
+
+        <select id="filtroMes">
+          <option value="">Todos los meses</option>
+          <option value="1">Enero</option>
+          <option value="2">Febrero</option>
+          <option value="3">Marzo</option>
+          <option value="4">Abril</option>
+          <option value="5">Mayo</option>
+          <option value="6">Junio</option>
+          <option value="7">Julio</option>
+          <option value="8">Agosto</option>
+          <option value="9">Septiembre</option>
+          <option value="10">Octubre</option>
+          <option value="11">Noviembre</option>
+          <option value="12">Diciembre</option>
+        </select>
+
+        <select id="filtroCategoria">
+          <option value="">Todas las categorías</option>
+          <option value="Comestible">Comestible</option>
+          <option value="Fruto">Fruto</option>
+          <option value="Frutal">Frutal</option>
+          <option value="Hierba">Hierba</option>
+          <option value="Flor">Flor</option>
+        </select>
+      </div>
+
+      <div id="resumenMes" class="resumen"></div>
+      <div id="contenedorPlantas" class="grid"></div>
+    </section>
+
+    <!-- MI HUERTO -->
+    <section id="miHuerto" class="panel">
+      <h2>🪴 Mi huerto</h2>
+
+      <form id="formHuerto" class="form-huerto">
+        <select id="huertoPlanta">
+          <option value="">Seleccionar planta</option>
+          <option value="__manual__">Otra planta no listada</option>
+        </select>
+
+        <input type="text" id="huertoPlantaManual" class="hidden" placeholder="Nombre de la planta" />
+
+        <label class="opcion-check" for="huertoNoSemilla">
+          <input type="checkbox" id="huertoNoSemilla" />
+          No es por semilla
+        </label>
+
+        <div class="campo-etiqueta">
+          <label for="huertoFecha" id="labelHuertoFecha">Fecha de siembra</label>
+          <input type="date" id="huertoFecha" required />
+        </div>
+
+        <input type="number" id="huertoCantidad" min="1" placeholder="Cantidad (opcional)" />
+        <input type="text" id="huertoLugar" placeholder="Lugar (maceta, cantero, patio...)" />
+        <textarea id="huertoNotas" placeholder="Notas"></textarea>
+
+        <button type="submit">Guardar en mi huerto</button>
+      </form>
+
+      <div id="contenedorHuerto" class="grid"></div>
+    </section>
+  </main>
+
+  <!-- MODAL -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <button id="cerrarModal" class="cerrar">✖</button>
+      <div id="modalDetalle"></div>
+    </div>
+  </div>
+
+  <script src="plantas.js"></script>
+  <script src="miHuerto.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
