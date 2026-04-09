@@ -48,12 +48,38 @@
       </div>
 
       <div id="resumenMes" class="resumen"></div>
+
+      <details id="panelAltaPlanta" class="panel-alta">
+        <summary>Agregar nueva planta</summary>
+        <form id="formPlanta" class="form-planta">
+          <p id="formPlantaTitulo" class="form-planta-titulo">Modo alta de planta</p>
+          <input type="text" id="plantaNombre" placeholder="Nombre" required />
+          <input type="text" id="plantaCategoria" placeholder="Categoría" required />
+          <input type="text" id="plantaHumedad" placeholder="Humedad (opcional)" />
+          <input type="text" id="plantaSol" placeholder="Sol (opcional)" />
+          <input type="number" id="plantaGermina" min="0" placeholder="Germina en días" />
+          <input type="number" id="plantaCosecha" min="0" placeholder="Cosecha en días" />
+          <input type="text" id="plantaMeses" placeholder="Meses (1,2,3...)" required />
+          <input type="text" id="plantaMaceta" placeholder="Maceta mínima (opcional)" />
+          <input type="text" id="plantaImg1" placeholder="Imagen etapa 1 (URL o ruta)" />
+          <input type="text" id="plantaImg2" placeholder="Imagen etapa 2 (URL o ruta)" />
+          <textarea id="plantaTips" placeholder="Tips (opcional)"></textarea>
+          <div class="acciones-form-planta">
+            <button id="btnGuardarPlanta" type="submit">Guardar planta en catálogo</button>
+            <button id="btnCancelarEdicionPlanta" type="button" class="btn-secundario hidden">Cancelar edición</button>
+          </div>
+        </form>
+      </details>
+
       <div id="contenedorPlantas" class="grid"></div>
     </section>
 
     <!-- MI HUERTO -->
     <section id="miHuerto" class="panel">
       <h2>🪴 Mi huerto</h2>
+      <div class="panel-acciones">
+        <button id="btnInicioDesdeHuerto" type="button" class="btn-secundario">Volver al inicio</button>
+      </div>
 
       <form id="formHuerto" class="form-huerto">
         <select id="huertoPlanta">
@@ -71,7 +97,10 @@
         <div class="campo-etiqueta">
           <label for="huertoFecha" id="labelHuertoFecha">Fecha de siembra</label>
           <input type="date" id="huertoFecha" required />
+          <button id="btnFechaHoy" type="button" class="btn-secundario">Usar fecha de hoy</button>
         </div>
+
+        <div id="pronosticoHuerto" class="pronostico-huerto" aria-live="polite"></div>
 
         <input type="number" id="huertoCantidad" min="1" placeholder="Cantidad (opcional)" />
         <input type="text" id="huertoLugar" placeholder="Lugar (maceta, cantero, patio...)" />
@@ -89,6 +118,9 @@
     <div class="modal-content">
       <button id="cerrarModal" class="cerrar">✖</button>
       <div id="modalDetalle"></div>
+      <div class="acciones-modal">
+        <button id="btnInicioDesdeModal" type="button" class="btn-secundario">Cerrar y volver al inicio</button>
+      </div>
     </div>
   </div>
 

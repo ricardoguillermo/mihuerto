@@ -3,14 +3,33 @@ const buscador = document.getElementById("buscador");
 const filtroMes = document.getElementById("filtroMes");
 const filtroCategoria = document.getElementById("filtroCategoria");
 const resumenMes = document.getElementById("resumenMes");
+const panelAltaPlanta = document.getElementById("panelAltaPlanta");
+const formPlanta = document.getElementById("formPlanta");
+const formPlantaTitulo = document.getElementById("formPlantaTitulo");
+const plantaNombre = document.getElementById("plantaNombre");
+const plantaCategoria = document.getElementById("plantaCategoria");
+const plantaHumedad = document.getElementById("plantaHumedad");
+const plantaSol = document.getElementById("plantaSol");
+const plantaGermina = document.getElementById("plantaGermina");
+const plantaCosecha = document.getElementById("plantaCosecha");
+const plantaMeses = document.getElementById("plantaMeses");
+const plantaMaceta = document.getElementById("plantaMaceta");
+const plantaImg1 = document.getElementById("plantaImg1");
+const plantaImg2 = document.getElementById("plantaImg2");
+const plantaTips = document.getElementById("plantaTips");
+const btnGuardarPlanta = document.getElementById("btnGuardarPlanta");
+const btnCancelarEdicionPlanta = document.getElementById("btnCancelarEdicionPlanta");
 
 const modal = document.getElementById("modal");
 const modalDetalle = document.getElementById("modalDetalle");
 const cerrarModal = document.getElementById("cerrarModal");
+const btnInicioDesdeModal = document.getElementById("btnInicioDesdeModal");
 
 const formHuerto = document.getElementById("formHuerto");
 const huertoPlanta = document.getElementById("huertoPlanta");
 const huertoFecha = document.getElementById("huertoFecha");
+const btnFechaHoy = document.getElementById("btnFechaHoy");
+const pronosticoHuerto = document.getElementById("pronosticoHuerto");
 const huertoCantidad = document.getElementById("huertoCantidad");
 const huertoLugar = document.getElementById("huertoLugar");
 const huertoNotas = document.getElementById("huertoNotas");
@@ -18,12 +37,17 @@ const huertoPlantaManual = document.getElementById("huertoPlantaManual");
 const huertoNoSemilla = document.getElementById("huertoNoSemilla");
 const labelHuertoFecha = document.getElementById("labelHuertoFecha");
 const contenedorHuerto = document.getElementById("contenedorHuerto");
+const btnInicioDesdeHuerto = document.getElementById("btnInicioDesdeHuerto");
 
 // ============================
 // CONFIG
 // ============================
 
 // const STORAGE_KEY = "miHuertoCalendarioSiembra";
+const STORAGE_PLANTAS_KEY = "plantasPersonalizadasCalendarioSiembra";
+const STORAGE_EDICIONES_PLANTAS_KEY = "plantasEditadasCalendarioSiembra";
+
+let plantaEnEdicionOrigen = null;
 
 // ============================
 // UTILIDADES
@@ -36,6 +60,18 @@ function obtenerRutaImagen(imagen) {
 
 function obtenerImagenPlanta(planta) {
   return obtenerRutaImagen(planta.imgEtapa2 || planta.imgEtapa1 || planta.imagen || "");
+}
+
+function limpiarMetadatosPlanta(planta) {
+  const copia = { ...planta };
+  delete copia._esPersonalizada;
+  return copia;
+}
+
+function escaparTextoParaOnclick(texto) {
+  return String(texto)
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'");
 }
 
 function normalizarNombrePlanta(nombre) {
@@ -93,6 +129,41 @@ function hoySinHora() {
   return hoy;
 }
 
+function diasEntreFechas(fechaObjetivo, fechaBase = hoySinHora()) {
+  const msPorDia = 1000 * 60 * 60 * 24;
+  return Math.round((fechaObjetivo.getTime() - fechaBase.getTime()) / msPorDia);
+}
+
+function obtenerEstadoPronostico(fechaObjetivo) {
+  const diferencia = diasEntreFechas(fechaObjetivo);
+
+  if (diferencia < 0) {
+    return {
+      clase: "pronostico-item--vencido",
+      textoDias: `hace ${Math.abs(diferencia)} día${Math.abs(diferencia) === 1 ? "" : "s"}`
+    };
+  }
+
+  if (diferencia === 0) {
+    return {
+      clase: "pronostico-item--hoy",
+      textoDias: "hoy"
+    };
+  }
+
+  if (diferencia <= 7) {
+    return {
+      clase: "pronostico-item--cerca",
+      textoDias: `en ${diferencia} día${diferencia === 1 ? "" : "s"}`
+    };
+  }
+
+  return {
+    clase: "pronostico-item--pendiente",
+    textoDias: `en ${diferencia} día${diferencia === 1 ? "" : "s"}`
+  };
+}
+
 // ============================
 // LOCAL STORAGE
 // ============================
@@ -104,6 +175,94 @@ function cargarHuerto() {
 
 function guardarHuerto(lista) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+}
+
+function cargarPlantasPersonalizadas() {
+  const guardado = localStorage.getItem(STORAGE_PLANTAS_KEY);
+  if (!guardado) return [];
+
+  try {
+    const lista = JSON.parse(guardado);
+    return Array.isArray(lista) ? lista : [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarPlantasPersonalizadas(lista) {
+  localStorage.setItem(STORAGE_PLANTAS_KEY, JSON.stringify(lista));
+}
+
+function cargarEdicionesPlantas() {
+  const guardado = localStorage.getItem(STORAGE_EDICIONES_PLANTAS_KEY);
+  if (!guardado) return [];
+
+  try {
+    const lista = JSON.parse(guardado);
+    return Array.isArray(lista) ? lista : [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarEdicionesPlantas(lista) {
+  localStorage.setItem(STORAGE_EDICIONES_PLANTAS_KEY, JSON.stringify(lista));
+}
+
+function inicializarMetadatosPlantasBase() {
+  plantas.forEach(planta => {
+    if (!planta._origenNombre) {
+      planta._origenNombre = planta.nombre;
+    }
+
+    if (planta._esPersonalizada !== true) {
+      planta._esPersonalizada = false;
+    }
+  });
+}
+
+function combinarPlantasBaseYCustom() {
+  const personalizadas = cargarPlantasPersonalizadas();
+  if (!personalizadas.length) return;
+
+  personalizadas.forEach(plantaCustom => {
+    const origenNombre = String(plantaCustom._origenNombre || plantaCustom.nombre || "");
+    const existe = plantas.some(
+      planta => String(planta._origenNombre || planta.nombre || "").toLowerCase() === origenNombre.toLowerCase()
+    );
+
+    if (!existe) {
+      plantas.push({
+        ...plantaCustom,
+        _origenNombre: origenNombre,
+        _esPersonalizada: true
+      });
+    }
+  });
+}
+
+function aplicarEdicionesDePlantas() {
+  const ediciones = cargarEdicionesPlantas();
+  if (!ediciones.length) return;
+
+  ediciones.forEach(edicion => {
+    const origen = String(edicion?.origenNombre || "").trim();
+    if (!origen || !edicion?.planta) return;
+
+    const index = plantas.findIndex(planta =>
+      String(planta._origenNombre || planta.nombre || "").toLowerCase() === origen.toLowerCase()
+    );
+
+    if (index === -1) return;
+
+    const base = plantas[index];
+    plantas[index] = {
+      ...base,
+      ...edicion.planta,
+      _origenNombre: origen,
+      _esPersonalizada: base._esPersonalizada === true
+    };
+  });
 }
 
 // ============================
@@ -143,6 +302,83 @@ function obtenerNombreCultivo() {
   return huertoPlanta.value;
 }
 
+function fechaISOHoy() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function asegurarFechaHuertoInicial() {
+  if (!huertoFecha.value) {
+    huertoFecha.value = fechaISOHoy();
+  }
+}
+
+function obtenerPlantaSeleccionadaHuerto() {
+  if (!huertoPlanta.value || huertoPlanta.value === "__manual__") return null;
+  return plantas.find(planta => planta.nombre === huertoPlanta.value) || null;
+}
+
+function actualizarPronosticoHuerto() {
+  const fechaInicio = huertoFecha.value;
+  const esPorSemilla = !huertoNoSemilla.checked;
+  const plantaBase = obtenerPlantaSeleccionadaHuerto();
+  pronosticoHuerto.classList.remove("pronostico-huerto--manual");
+
+  if (!huertoPlanta.value) {
+    pronosticoHuerto.innerHTML = `<p>Seleccioná una planta para ver fechas estimadas de germinación y cosecha.</p>`;
+    return;
+  }
+
+  if (!fechaInicio) {
+    pronosticoHuerto.innerHTML = `<p>Elegí una fecha para calcular el pronóstico.</p>`;
+    return;
+  }
+
+  if (!plantaBase) {
+    pronosticoHuerto.classList.add("pronostico-huerto--manual");
+    pronosticoHuerto.innerHTML = `<p>Para plantas manuales, el seguimiento de fechas se hace de forma manual.</p>`;
+    return;
+  }
+
+  const fechaGerminacion = esPorSemilla && plantaBase.germina
+    ? sumarDias(fechaInicio, plantaBase.germina)
+    : null;
+  const fechaCosecha = plantaBase.cosecha
+    ? sumarDias(fechaInicio, plantaBase.cosecha)
+    : null;
+
+  const etiquetaInicio = esPorSemilla ? "siembra" : "incorporación";
+  const inicioTexto = formatearFecha(new Date(fechaInicio + "T00:00:00"));
+
+  const chips = [];
+
+  if (fechaGerminacion) {
+    const estado = obtenerEstadoPronostico(fechaGerminacion);
+    chips.push(`
+      <span class="pronostico-item ${estado.clase}">
+        Germinación: ${formatearFecha(fechaGerminacion)} (${estado.textoDias})
+      </span>
+    `);
+  }
+
+  if (fechaCosecha) {
+    const estado = obtenerEstadoPronostico(fechaCosecha);
+    chips.push(`
+      <span class="pronostico-item ${estado.clase}">
+        Cosecha: ${formatearFecha(fechaCosecha)} (${estado.textoDias})
+      </span>
+    `);
+  }
+
+  const items = chips.length
+    ? chips.join("")
+    : `<span class="pronostico-item pronostico-item--pendiente">No hay datos de calendario para esta planta.</span>`;
+
+  pronosticoHuerto.innerHTML = `
+    <p><strong>Si la ${etiquetaInicio} es el ${inicioTexto}</strong>, estas son las fechas aproximadas:</p>
+    <div class="pronostico-items">${items}</div>
+  `;
+}
+
 function actualizarFormularioHuerto() {
   const esManual = huertoPlanta.value === "__manual__";
   const esPorSemilla = !huertoNoSemilla.checked;
@@ -150,6 +386,7 @@ function actualizarFormularioHuerto() {
   huertoPlantaManual.classList.toggle("hidden", !esManual);
   huertoPlantaManual.required = esManual;
   labelHuertoFecha.textContent = esPorSemilla ? "Fecha de siembra" : "Fecha de incorporación";
+  actualizarPronosticoHuerto();
 }
 
 // ============================
@@ -173,6 +410,142 @@ function poblarSelectPlantas() {
     });
 }
 
+function poblarFiltroCategorias() {
+  const categorias = Array.from(
+    new Set(
+      plantas
+        .map(planta => (planta.categoria || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  filtroCategoria.innerHTML = '<option value="">Todas las categorías</option>';
+
+  categorias.forEach(categoria => {
+    const option = document.createElement("option");
+    option.value = categoria;
+    option.textContent = categoria;
+    filtroCategoria.appendChild(option);
+  });
+}
+
+function parsearMeses(textoMeses) {
+  const numeros = textoMeses
+    .split(",")
+    .map(valor => Number(valor.trim()))
+    .filter(valor => Number.isInteger(valor) && valor >= 1 && valor <= 12);
+
+  return Array.from(new Set(numeros)).sort((a, b) => a - b);
+}
+
+function buscarIndicePorOrigen(origenNombre) {
+  return plantas.findIndex(
+    planta => String(planta._origenNombre || planta.nombre || "").toLowerCase() === String(origenNombre || "").toLowerCase()
+  );
+}
+
+function actualizarTextoFormularioPlanta() {
+  const enEdicion = Boolean(plantaEnEdicionOrigen);
+  formPlantaTitulo.textContent = enEdicion ? "Modo edición de planta" : "Modo alta de planta";
+  btnGuardarPlanta.textContent = enEdicion ? "Guardar cambios" : "Guardar planta en catálogo";
+  btnCancelarEdicionPlanta.classList.toggle("hidden", !enEdicion);
+}
+
+function limpiarModoEdicionPlanta() {
+  plantaEnEdicionOrigen = null;
+  formPlanta.reset();
+  actualizarTextoFormularioPlanta();
+}
+
+function actualizarPersonalizadasEnStorage(plantaActualizada) {
+  const personalizadas = cargarPlantasPersonalizadas();
+  const origen = String(plantaActualizada._origenNombre || plantaActualizada.nombre || "").toLowerCase();
+  const index = personalizadas.findIndex(
+    planta => String(planta._origenNombre || planta.nombre || "").toLowerCase() === origen
+  );
+
+  const datos = {
+    ...limpiarMetadatosPlanta(plantaActualizada),
+    _origenNombre: plantaActualizada._origenNombre || plantaActualizada.nombre
+  };
+
+  if (index === -1) {
+    personalizadas.push(datos);
+  } else {
+    personalizadas[index] = datos;
+  }
+
+  guardarPlantasPersonalizadas(personalizadas);
+}
+
+function actualizarEdicionesBaseEnStorage(plantaActualizada) {
+  const origen = plantaActualizada._origenNombre || plantaActualizada.nombre;
+  const ediciones = cargarEdicionesPlantas();
+  const index = ediciones.findIndex(
+    item => String(item.origenNombre || "").toLowerCase() === String(origen).toLowerCase()
+  );
+
+  const nuevaEdicion = {
+    origenNombre: origen,
+    planta: limpiarMetadatosPlanta(plantaActualizada)
+  };
+
+  if (index === -1) {
+    ediciones.push(nuevaEdicion);
+  } else {
+    ediciones[index] = nuevaEdicion;
+  }
+
+  guardarEdicionesPlantas(ediciones);
+}
+
+function renombrarCultivos(nombreAnterior, nombreNuevo) {
+  if (!nombreAnterior || !nombreNuevo || nombreAnterior === nombreNuevo) return;
+
+  const huerto = cargarHuerto();
+  let huboCambios = false;
+
+  const actualizado = huerto.map(item => {
+    if (item.planta !== nombreAnterior) return item;
+
+    huboCambios = true;
+    return {
+      ...item,
+      planta: nombreNuevo
+    };
+  });
+
+  if (huboCambios) {
+    guardarHuerto(actualizado);
+  }
+}
+
+function editarPlanta(origenNombre) {
+  const index = buscarIndicePorOrigen(origenNombre);
+  if (index === -1) return;
+
+  const planta = plantas[index];
+  plantaEnEdicionOrigen = planta._origenNombre || planta.nombre;
+
+  plantaNombre.value = planta.nombre || "";
+  plantaCategoria.value = planta.categoria || "";
+  plantaHumedad.value = planta.humedad || "";
+  plantaSol.value = planta.sol || "";
+  plantaGermina.value = planta.germina || "";
+  plantaCosecha.value = planta.cosecha || "";
+  plantaMeses.value = (planta.meses || []).join(",");
+  plantaMaceta.value = planta.macetaMin || "";
+  plantaImg1.value = planta.imgEtapa1 || "";
+  plantaImg2.value = planta.imgEtapa2 || "";
+  plantaTips.value = planta.tips || "";
+
+  actualizarTextoFormularioPlanta();
+
+  panelAltaPlanta.open = true;
+  formPlanta.scrollIntoView({ behavior: "smooth", block: "center" });
+  plantaNombre.focus();
+}
+
 // ============================
 // RENDER CATÁLOGO
 // ============================
@@ -186,6 +559,8 @@ function renderPlantas(lista) {
   }
 
   lista.forEach(planta => {
+    const nombreSeguro = escaparTextoParaOnclick(planta.nombre);
+    const origenSeguro = escaparTextoParaOnclick(planta._origenNombre || planta.nombre);
     const card = document.createElement("div");
     card.className = "card";
     card.id = `catalogo-${normalizarNombrePlanta(planta.nombre)}`;
@@ -199,8 +574,11 @@ function renderPlantas(lista) {
         <p><strong>Cosecha en:</strong> ${planta.cosecha || "-"} días</p>
         <p><strong>Sol:</strong> ${planta.sol || "-"}</p>
         <div class="acciones">
-          <button class="btn-secundario" onclick="abrirModal('${planta.nombre}')">
+          <button class="btn-secundario" onclick="abrirModal('${nombreSeguro}')">
             Ver detalle
+          </button>
+          <button class="btn-secundario" onclick="editarPlanta('${origenSeguro}')">
+            Editar
           </button>
         </div>
       </div>
@@ -229,7 +607,7 @@ function filtrarPlantas() {
 
   const filtradas = plantas.filter(planta => {
     const coincideNombre = planta.nombre.toLowerCase().includes(texto);
-    const coincideMes = !mes || planta.meses.includes(mes);
+    const coincideMes = !mes || (Array.isArray(planta.meses) && planta.meses.includes(mes));
     const coincideCategoria = !categoria || planta.categoria === categoria;
 
     return coincideNombre && coincideMes && coincideCategoria;
@@ -266,6 +644,26 @@ function cerrarVentanaModal() {
   modal.classList.add("hidden");
 }
 
+function enfocarInicio() {
+  const tituloPrincipal = document.querySelector(".header h1");
+  if (!tituloPrincipal) return;
+
+  if (!tituloPrincipal.hasAttribute("tabindex")) {
+    tituloPrincipal.setAttribute("tabindex", "-1");
+  }
+
+  tituloPrincipal.focus({ preventScroll: true });
+}
+
+function volverAlInicio(cerrarModalAntes = false) {
+  if (cerrarModalAntes) {
+    cerrarVentanaModal();
+  }
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.setTimeout(enfocarInicio, 350);
+}
+
 function irACatalogo(nombrePlanta) {
   const plantaExiste = plantas.some(planta => planta.nombre === nombrePlanta);
   if (!plantaExiste) return;
@@ -284,6 +682,109 @@ function irACatalogo(nombrePlanta) {
   window.setTimeout(() => {
     destino.classList.remove("card-destacada");
   }, 1800);
+}
+
+function manejarSubmitPlanta(e) {
+  e.preventDefault();
+
+  const nombre = plantaNombre.value.trim();
+  const categoria = plantaCategoria.value.trim();
+  const meses = parsearMeses(plantaMeses.value);
+  const enEdicion = Boolean(plantaEnEdicionOrigen);
+  const origenActual = plantaEnEdicionOrigen;
+
+  if (!nombre) {
+    plantaNombre.focus();
+    return;
+  }
+
+  if (!categoria) {
+    plantaCategoria.focus();
+    return;
+  }
+
+  if (!meses.length) {
+    plantaMeses.focus();
+    return;
+  }
+
+  const yaExiste = plantas.some(planta => {
+    if (planta.nombre.toLowerCase() !== nombre.toLowerCase()) return false;
+
+    if (!enEdicion) return true;
+
+    const origenDePlanta = planta._origenNombre || planta.nombre;
+    return String(origenDePlanta).toLowerCase() !== String(origenActual).toLowerCase();
+  });
+
+  if (yaExiste) {
+    alert("Ya existe una planta con ese nombre en el catálogo.");
+    plantaNombre.focus();
+    return;
+  }
+
+  const datosPlanta = {
+    nombre,
+    categoria,
+    humedad: plantaHumedad.value.trim() || "",
+    meses,
+    germina: plantaGermina.value ? Number(plantaGermina.value) : "",
+    cosecha: plantaCosecha.value ? Number(plantaCosecha.value) : "",
+    macetaMin: plantaMaceta.value.trim() || "",
+    tips: plantaTips.value.trim() || "",
+    sol: plantaSol.value.trim() || "",
+    imgEtapa1: plantaImg1.value.trim() || "",
+    imgEtapa2: plantaImg2.value.trim() || ""
+  };
+
+  if (enEdicion) {
+    const index = buscarIndicePorOrigen(origenActual);
+    if (index === -1) {
+      alert("No se encontró la planta a editar.");
+      return;
+    }
+
+    const plantaPrev = plantas[index];
+    const plantaActualizada = {
+      ...plantaPrev,
+      ...datosPlanta,
+      _origenNombre: origenActual,
+      _esPersonalizada: plantaPrev._esPersonalizada === true
+    };
+
+    plantas[index] = plantaActualizada;
+
+    if (plantaActualizada._esPersonalizada) {
+      actualizarPersonalizadasEnStorage(plantaActualizada);
+    } else {
+      actualizarEdicionesBaseEnStorage(plantaActualizada);
+    }
+
+    renombrarCultivos(plantaPrev.nombre, plantaActualizada.nombre);
+    limpiarModoEdicionPlanta();
+  } else {
+    const nuevaPlanta = {
+      ...datosPlanta,
+      _origenNombre: nombre,
+      _esPersonalizada: true
+    };
+
+    plantas.push(nuevaPlanta);
+
+    const personalizadas = cargarPlantasPersonalizadas();
+    personalizadas.push({
+      ...datosPlanta,
+      _origenNombre: nombre
+    });
+    guardarPlantasPersonalizadas(personalizadas);
+    formPlanta.reset();
+  }
+
+  poblarFiltroCategorias();
+  poblarSelectPlantas();
+  buscador.value = nombre;
+  filtrarPlantas();
+  renderMiHuerto();
 }
 
 // ============================
@@ -334,8 +835,9 @@ function renderMiHuerto() {
 
     const card = document.createElement("div");
     card.className = "card";
+    const nombreSeguro = escaparTextoParaOnclick(cultivo.planta);
     const tituloCultivo = plantaBase
-      ? `<button class="card-link-titulo" type="button" onclick="irACatalogo('${cultivo.planta}')">${cultivo.planta}</button>`
+      ? `<button class="card-link-titulo" type="button" onclick="irACatalogo('${nombreSeguro}')">${cultivo.planta}</button>`
       : cultivo.planta;
 
     card.innerHTML = `
@@ -401,6 +903,7 @@ function manejarSubmitHuerto(e) {
   guardarHuerto(lista);
 
   formHuerto.reset();
+  asegurarFechaHuertoInicial();
   actualizarFormularioHuerto();
   renderMiHuerto();
 }
@@ -410,29 +913,47 @@ function manejarSubmitHuerto(e) {
 // ============================
 
 function init() {
+  inicializarMetadatosPlantasBase();
+  combinarPlantasBaseYCustom();
+  aplicarEdicionesDePlantas();
   filtroMes.value = obtenerMesActual();
 
   poblarSelectPlantas();
+  poblarFiltroCategorias();
   filtrarPlantas();
   renderMiHuerto();
+  asegurarFechaHuertoInicial();
 
   buscador.addEventListener("input", filtrarPlantas);
   filtroMes.addEventListener("change", filtrarPlantas);
   filtroCategoria.addEventListener("change", filtrarPlantas);
   huertoPlanta.addEventListener("change", actualizarFormularioHuerto);
   huertoNoSemilla.addEventListener("change", actualizarFormularioHuerto);
+  huertoFecha.addEventListener("change", actualizarPronosticoHuerto);
+  huertoPlantaManual.addEventListener("input", actualizarPronosticoHuerto);
+  btnFechaHoy.addEventListener("click", () => {
+    huertoFecha.value = fechaISOHoy();
+    actualizarPronosticoHuerto();
+  });
 
   cerrarModal.addEventListener("click", cerrarVentanaModal);
+  btnInicioDesdeModal.addEventListener("click", () => volverAlInicio(true));
+  btnInicioDesdeHuerto.addEventListener("click", () => volverAlInicio(false));
 
   modal.addEventListener("click", (e) => {
     if (e.target === modal) cerrarVentanaModal();
   });
 
   formHuerto.addEventListener("submit", manejarSubmitHuerto);
+  formPlanta.addEventListener("submit", manejarSubmitPlanta);
+  btnCancelarEdicionPlanta.addEventListener("click", limpiarModoEdicionPlanta);
+  actualizarTextoFormularioPlanta();
   actualizarFormularioHuerto();
+  actualizarPronosticoHuerto();
 }
 
 window.abrirModal = abrirModal;
+window.editarPlanta = editarPlanta;
 window.eliminarCultivo = eliminarCultivo;
 window.irACatalogo = irACatalogo;
 
