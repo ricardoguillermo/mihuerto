@@ -43,11 +43,21 @@ const btnInicioDesdeHuerto = document.getElementById("btnInicioDesdeHuerto");
 // CONFIG
 // ============================
 
-// const STORAGE_KEY = "miHuertoCalendarioSiembra";
+const STORAGE_KEY_HUERTO = "miHuertoCalendarioSiembra";
 const STORAGE_PLANTAS_KEY = "plantasPersonalizadasCalendarioSiembra";
 const STORAGE_EDICIONES_PLANTAS_KEY = "plantasEditadasCalendarioSiembra";
+const STORAGE_MIGRACION_HUERTO_KEY = "miHuertoMigradoASupabase";
+
+// Completá estos valores para activar persistencia en Supabase.
+const SUPABASE_URL = window.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
+const supabaseClient = window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+const usaNubeHuerto = Boolean(supabaseClient);
 
 let plantaEnEdicionOrigen = null;
+let cacheHuerto = [];
 
 // ============================
 // UTILIDADES
@@ -168,13 +178,159 @@ function obtenerEstadoPronostico(fechaObjetivo) {
 // LOCAL STORAGE
 // ============================
 
-function cargarHuerto() {
-  const guardado = localStorage.getItem(STORAGE_KEY);
+function cargarHuertoLocal() {
+  const guardado = localStorage.getItem(STORAGE_KEY_HUERTO);
   return guardado ? JSON.parse(guardado) : [];
 }
 
-function guardarHuerto(lista) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+function guardarHuertoLocal(lista) {
+  localStorage.setItem(STORAGE_KEY_HUERTO, JSON.stringify(lista));
+}
+
+function cultivoDesdeFilaHuerto(fila) {
+  return {
+    id: fila.id,
+    planta: fila.planta,
+    fechaInicio: fila.fecha_inicio,
+    cantidad: fila.cantidad,
+    esPorSemilla: fila.es_por_semilla,
+    lugar: fila.lugar || "",
+    notas: fila.notas || ""
+  };
+}
+
+function filaDesdeCultivo(cultivo) {
+  return {
+    planta: cultivo.planta,
+    fecha_inicio: cultivo.fechaInicio || cultivo.fechaSiembra,
+    cantidad: cultivo.cantidad,
+    es_por_semilla: cultivo.esPorSemilla !== false,
+    lugar: cultivo.lugar || "",
+    notas: cultivo.notas || ""
+  };
+}
+
+async function cargarHuertoPersistido() {
+  if (!usaNubeHuerto) {
+    return cargarHuertoLocal();
+  }
+
+  const { data, error } = await supabaseClient
+    .from("huerto")
+    .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("No se pudo cargar MiHuerto desde Supabase:", error.message);
+    return cargarHuertoLocal();
+  }
+
+  return data.map(cultivoDesdeFilaHuerto);
+}
+
+async function guardarCultivoPersistido(cultivo) {
+  if (!usaNubeHuerto) {
+    const lista = cargarHuertoLocal();
+    lista.push(cultivo);
+    guardarHuertoLocal(lista);
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from("huerto")
+    .insert(filaDesdeCultivo(cultivo));
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function eliminarCultivoPersistido(id) {
+  if (!usaNubeHuerto) {
+    const lista = cargarHuertoLocal().filter(item => String(item.id) !== String(id));
+    guardarHuertoLocal(lista);
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from("huerto")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function renombrarCultivosPersistidos(nombreAnterior, nombreNuevo) {
+  if (!nombreAnterior || !nombreNuevo || nombreAnterior === nombreNuevo) return;
+
+  if (!usaNubeHuerto) {
+    const huerto = cargarHuertoLocal();
+    let huboCambios = false;
+
+    const actualizado = huerto.map(item => {
+      if (item.planta !== nombreAnterior) return item;
+      huboCambios = true;
+      return { ...item, planta: nombreNuevo };
+    });
+
+    if (huboCambios) {
+      guardarHuertoLocal(actualizado);
+    }
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from("huerto")
+    .update({ planta: nombreNuevo })
+    .eq("planta", nombreAnterior);
+
+  if (error) {
+    console.error("No se pudieron renombrar cultivos en Supabase:", error.message);
+  }
+}
+
+async function migrarHuertoLocalASupabaseSiCorresponde() {
+  if (!usaNubeHuerto) return;
+  if (localStorage.getItem(STORAGE_MIGRACION_HUERTO_KEY) === "ok") return;
+
+  const local = cargarHuertoLocal();
+  if (!local.length) {
+    localStorage.setItem(STORAGE_MIGRACION_HUERTO_KEY, "ok");
+    return;
+  }
+
+  const { count, error: errorConteo } = await supabaseClient
+    .from("huerto")
+    .select("id", { count: "exact", head: true });
+
+  if (errorConteo) {
+    console.error("No se pudo verificar migración de MiHuerto:", errorConteo.message);
+    return;
+  }
+
+  if ((count || 0) > 0) {
+    localStorage.setItem(STORAGE_MIGRACION_HUERTO_KEY, "ok");
+    return;
+  }
+
+  const filas = local.map(filaDesdeCultivo);
+  const { error } = await supabaseClient
+    .from("huerto")
+    .insert(filas);
+
+  if (error) {
+    console.error("No se pudo migrar MiHuerto a Supabase:", error.message);
+    return;
+  }
+
+  localStorage.setItem(STORAGE_MIGRACION_HUERTO_KEY, "ok");
+}
+
+async function refrescarMiHuerto() {
+  cacheHuerto = await cargarHuertoPersistido();
+  renderMiHuerto();
 }
 
 function cargarPlantasPersonalizadas() {
@@ -499,25 +655,8 @@ function actualizarEdicionesBaseEnStorage(plantaActualizada) {
   guardarEdicionesPlantas(ediciones);
 }
 
-function renombrarCultivos(nombreAnterior, nombreNuevo) {
-  if (!nombreAnterior || !nombreNuevo || nombreAnterior === nombreNuevo) return;
-
-  const huerto = cargarHuerto();
-  let huboCambios = false;
-
-  const actualizado = huerto.map(item => {
-    if (item.planta !== nombreAnterior) return item;
-
-    huboCambios = true;
-    return {
-      ...item,
-      planta: nombreNuevo
-    };
-  });
-
-  if (huboCambios) {
-    guardarHuerto(actualizado);
-  }
+async function renombrarCultivos(nombreAnterior, nombreNuevo) {
+  await renombrarCultivosPersistidos(nombreAnterior, nombreNuevo);
 }
 
 function editarPlanta(origenNombre) {
@@ -684,7 +823,7 @@ function irACatalogo(nombrePlanta) {
   }, 1800);
 }
 
-function manejarSubmitPlanta(e) {
+async function manejarSubmitPlanta(e) {
   e.preventDefault();
 
   const nombre = plantaNombre.value.trim();
@@ -760,7 +899,7 @@ function manejarSubmitPlanta(e) {
       actualizarEdicionesBaseEnStorage(plantaActualizada);
     }
 
-    renombrarCultivos(plantaPrev.nombre, plantaActualizada.nombre);
+    await renombrarCultivos(plantaPrev.nombre, plantaActualizada.nombre);
     limpiarModoEdicionPlanta();
   } else {
     const nuevaPlanta = {
@@ -784,7 +923,7 @@ function manejarSubmitPlanta(e) {
   poblarSelectPlantas();
   buscador.value = nombre;
   filtrarPlantas();
-  renderMiHuerto();
+  await refrescarMiHuerto();
 }
 
 // ============================
@@ -792,7 +931,7 @@ function manejarSubmitPlanta(e) {
 // ============================
 
 function renderMiHuerto() {
-  const lista = cargarHuerto();
+  const lista = cacheHuerto;
   contenedorHuerto.innerHTML = "";
 
   if (!lista.length) {
@@ -836,6 +975,7 @@ function renderMiHuerto() {
     const card = document.createElement("div");
     card.className = "card";
     const nombreSeguro = escaparTextoParaOnclick(cultivo.planta);
+    const idSeguro = escaparTextoParaOnclick(String(cultivo.id));
     const tituloCultivo = plantaBase
       ? `<button class="card-link-titulo" type="button" onclick="irACatalogo('${nombreSeguro}')">${cultivo.planta}</button>`
       : cultivo.planta;
@@ -854,7 +994,7 @@ function renderMiHuerto() {
         <span class="estado ${estado.clase}">${estado.texto}</span>
 
         <div class="acciones">
-          <button class="btn-danger" onclick="eliminarCultivo(${cultivo.id})">
+          <button class="btn-danger" onclick="eliminarCultivo('${idSeguro}')">
             Eliminar
           </button>
         </div>
@@ -865,13 +1005,16 @@ function renderMiHuerto() {
   });
 }
 
-function eliminarCultivo(id) {
-  const lista = cargarHuerto().filter(item => item.id !== id);
-  guardarHuerto(lista);
-  renderMiHuerto();
+async function eliminarCultivo(id) {
+  try {
+    await eliminarCultivoPersistido(id);
+    await refrescarMiHuerto();
+  } catch (error) {
+    alert(`No se pudo eliminar el cultivo: ${error.message}`);
+  }
 }
 
-function manejarSubmitHuerto(e) {
+async function manejarSubmitHuerto(e) {
   e.preventDefault();
 
   const nombreCultivo = obtenerNombreCultivo();
@@ -889,7 +1032,7 @@ function manejarSubmitHuerto(e) {
   const cantidad = huertoCantidad.value ? Number(huertoCantidad.value) : null;
 
   const nuevaSiembra = {
-    id: Date.now(),
+    id: usaNubeHuerto ? undefined : Date.now(),
     planta: nombreCultivo,
     fechaInicio: huertoFecha.value,
     cantidad,
@@ -898,21 +1041,24 @@ function manejarSubmitHuerto(e) {
     notas: huertoNotas.value.trim()
   };
 
-  const lista = cargarHuerto();
-  lista.push(nuevaSiembra);
-  guardarHuerto(lista);
+  try {
+    await guardarCultivoPersistido(nuevaSiembra);
+  } catch (error) {
+    alert(`No se pudo guardar en MiHuerto: ${error.message}`);
+    return;
+  }
 
   formHuerto.reset();
   asegurarFechaHuertoInicial();
   actualizarFormularioHuerto();
-  renderMiHuerto();
+  await refrescarMiHuerto();
 }
 
 // ============================
 // INIT
 // ============================
 
-function init() {
+async function init() {
   inicializarMetadatosPlantasBase();
   combinarPlantasBaseYCustom();
   aplicarEdicionesDePlantas();
@@ -921,7 +1067,8 @@ function init() {
   poblarSelectPlantas();
   poblarFiltroCategorias();
   filtrarPlantas();
-  renderMiHuerto();
+  await migrarHuertoLocalASupabaseSiCorresponde();
+  await refrescarMiHuerto();
   asegurarFechaHuertoInicial();
 
   buscador.addEventListener("input", filtrarPlantas);
@@ -957,4 +1104,6 @@ window.editarPlanta = editarPlanta;
 window.eliminarCultivo = eliminarCultivo;
 window.irACatalogo = irACatalogo;
 
-init();
+init().catch((error) => {
+  console.error("Error al iniciar la app:", error);
+});
