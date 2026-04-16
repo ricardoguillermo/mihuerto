@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: mihuerto
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: false
