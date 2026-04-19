@@ -213,9 +213,33 @@ function guardarAnotacionesHuerto(mapa) {
   localStorage.setItem(STORAGE_ANOTACIONES_HUERTO_KEY, JSON.stringify(mapa));
 }
 
+function normalizarHistorialAnotaciones(historial) {
+  if (!Array.isArray(historial)) return [];
+
+  return historial
+    .map((item, index) => {
+      const texto = String(item?.texto || "").trim();
+      if (!texto) return null;
+
+      const fecha = String(item?.fecha || "").trim();
+      return {
+        id: String(item?.id || `accion-${index}`),
+        fecha,
+        texto
+      };
+    })
+    .filter(Boolean);
+}
+
 function obtenerAnotacionHuertoPorId(id) {
   const mapa = cargarAnotacionesHuerto();
-  return mapa[String(id)] || {};
+  const guardada = mapa[String(id)] || {};
+
+  return {
+    fechaAnotacion: guardada.fechaAnotacion || "",
+    foto: guardada.foto || "",
+    historial: normalizarHistorialAnotaciones(guardada.historial)
+  };
 }
 
 function guardarAnotacionHuertoPorId(id, datos) {
@@ -229,13 +253,16 @@ function guardarAnotacionHuertoPorId(id, datos) {
 
   const sinFecha = !actualizado.fechaAnotacion;
   const sinFoto = !actualizado.foto;
+  const historial = normalizarHistorialAnotaciones(actualizado.historial);
+  const sinHistorial = historial.length === 0;
 
-  if (sinFecha && sinFoto) {
+  if (sinFecha && sinFoto && sinHistorial) {
     delete mapa[clave];
   } else {
     mapa[clave] = {
       fechaAnotacion: actualizado.fechaAnotacion || "",
-      foto: actualizado.foto || ""
+      foto: actualizado.foto || "",
+      historial
     };
   }
 
@@ -500,7 +527,8 @@ async function refrescarMiHuerto() {
     return {
       ...cultivo,
       fechaAnotacion: cultivo.fechaAnotacion || extra.fechaAnotacion || "",
-      foto: cultivo.foto || extra.foto || ""
+      foto: cultivo.foto || extra.foto || "",
+      historial: normalizarHistorialAnotaciones(cultivo.historial || extra.historial)
     };
   });
 
@@ -1119,6 +1147,7 @@ function renderMiHuerto() {
     const esPorSemilla = cultivo.esPorSemilla !== false;
     const fechaAnotacion = cultivo.fechaAnotacion || "";
     const fotoPersonalizada = cultivo.foto || "";
+    const historial = normalizarHistorialAnotaciones(cultivo.historial);
 
     if (!fechaInicio) return;
 
@@ -1161,6 +1190,31 @@ function renderMiHuerto() {
     const notasSeguro = escaparHtml(cultivo.notas || "");
     const fechaAnotacionSeguro = escaparHtml(fechaAnotacion);
     const fotoSeguro = escaparHtml(fotoPersonalizada);
+    const historialHtml = historial.length
+      ? `
+        <ul class="historial-lista">
+          ${historial.map(accion => {
+            const accionIdSeguro = escaparTextoParaOnclick(String(accion.id));
+            const textoAccion = escaparHtml(accion.texto || "");
+            const fechaAccion = accion.fecha
+              ? formatearFecha(new Date(accion.fecha + "T00:00:00"))
+              : "Sin fecha";
+
+            return `
+              <li class="historial-item">
+                <div class="historial-texto">
+                  <strong>${fechaAccion}:</strong> ${textoAccion}
+                </div>
+                <div class="acciones">
+                  <button type="button" class="btn-secundario btn-mini" onclick="editarAccionCultivo('${idSeguro}', '${accionIdSeguro}')">Editar</button>
+                  <button type="button" class="btn-danger btn-mini" onclick="eliminarAccionCultivo('${idSeguro}', '${accionIdSeguro}')">Eliminar</button>
+                </div>
+              </li>
+            `;
+          }).join("")}
+        </ul>
+      `
+      : `<p class="historial-vacio">Sin acciones registradas todavía.</p>`;
     const tituloCultivo = plantaBase
       ? `<button class="card-link-titulo" type="button" onclick="irACatalogo('${nombreSeguro}')">${cultivo.planta}</button>`
       : escaparHtml(cultivo.planta);
@@ -1215,6 +1269,29 @@ function renderMiHuerto() {
               <button type="submit" class="btn-secundario">Guardar anotación</button>
             </div>
           </form>
+        </details>
+
+        <details class="editor-anotacion">
+          <summary>Bitácora de acciones (fertilizante, poda, etc.)</summary>
+          <form class="form-anotacion" onsubmit="agregarAccionCultivo(event, '${idSeguro}')">
+            <label>
+              Fecha de la acción
+              <input type="date" name="fechaAccion" value="${fechaISOHoy()}">
+            </label>
+
+            <label>
+              Acción realizada
+              <textarea name="textoAccion" placeholder="Ej: Agregué fertilizante líquido 10-10-10"></textarea>
+            </label>
+
+            <div class="acciones">
+              <button type="submit" class="btn-secundario">Agregar acción</button>
+            </div>
+          </form>
+
+          <div class="historial-anotaciones">
+            ${historialHtml}
+          </div>
         </details>
 
         <div class="acciones">
@@ -1289,6 +1366,77 @@ async function guardarAnotacionCultivo(event, id) {
   } catch (error) {
     alert(`No se pudo guardar la anotación: ${error.message}`);
   }
+}
+
+async function agregarAccionCultivo(event, id) {
+  event.preventDefault();
+  const formulario = event.currentTarget;
+  const fecha = String(formulario.elements.fechaAccion?.value || "").trim() || fechaISOHoy();
+  const texto = String(formulario.elements.textoAccion?.value || "").trim();
+
+  if (!texto) {
+    formulario.elements.textoAccion?.focus();
+    return;
+  }
+
+  const anotacion = obtenerAnotacionHuertoPorId(id);
+  const historial = normalizarHistorialAnotaciones(anotacion.historial);
+
+  historial.unshift({
+    id: `accion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fecha,
+    texto
+  });
+
+  guardarAnotacionHuertoPorId(id, { historial });
+  await refrescarMiHuerto();
+}
+
+async function editarAccionCultivo(id, accionId) {
+  const anotacion = obtenerAnotacionHuertoPorId(id);
+  const historial = normalizarHistorialAnotaciones(anotacion.historial);
+  const index = historial.findIndex(accion => String(accion.id) === String(accionId));
+  if (index === -1) return;
+
+  const actual = historial[index];
+  const textoNuevo = window.prompt("Editar anotación:", actual.texto || "");
+  if (textoNuevo === null) return;
+
+  const texto = String(textoNuevo).trim();
+  if (!texto) {
+    alert("La anotación no puede quedar vacía.");
+    return;
+  }
+
+  const fechaNueva = window.prompt("Fecha (AAAA-MM-DD):", actual.fecha || "");
+  if (fechaNueva === null) return;
+
+  const fecha = String(fechaNueva).trim();
+  if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    alert("La fecha debe tener formato AAAA-MM-DD.");
+    return;
+  }
+
+  historial[index] = {
+    ...actual,
+    texto,
+    fecha
+  };
+
+  guardarAnotacionHuertoPorId(id, { historial });
+  await refrescarMiHuerto();
+}
+
+async function eliminarAccionCultivo(id, accionId) {
+  const confirmar = window.confirm("¿Eliminar esta acción de la bitácora?");
+  if (!confirmar) return;
+
+  const anotacion = obtenerAnotacionHuertoPorId(id);
+  const historial = normalizarHistorialAnotaciones(anotacion.historial)
+    .filter(accion => String(accion.id) !== String(accionId));
+
+  guardarAnotacionHuertoPorId(id, { historial });
+  await refrescarMiHuerto();
 }
 
 async function manejarSubmitHuerto(e) {
@@ -1381,6 +1529,9 @@ window.editarPlanta = editarPlanta;
 window.eliminarCultivo = eliminarCultivo;
 window.irACatalogo = irACatalogo;
 window.guardarAnotacionCultivo = guardarAnotacionCultivo;
+window.agregarAccionCultivo = agregarAccionCultivo;
+window.editarAccionCultivo = editarAccionCultivo;
+window.eliminarAccionCultivo = eliminarAccionCultivo;
 
 init().catch((error) => {
   console.error("Error al iniciar la app:", error);
