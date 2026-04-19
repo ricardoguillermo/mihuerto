@@ -47,6 +47,7 @@ const STORAGE_KEY_HUERTO = "miHuertoCalendarioSiembra";
 const STORAGE_PLANTAS_KEY = "plantasPersonalizadasCalendarioSiembra";
 const STORAGE_EDICIONES_PLANTAS_KEY = "plantasEditadasCalendarioSiembra";
 const STORAGE_MIGRACION_HUERTO_KEY = "miHuertoMigradoASupabase";
+const STORAGE_ANOTACIONES_HUERTO_KEY = "miHuertoAnotacionesCalendarioSiembra";
 
 // Completá estos valores para activar persistencia en Supabase.
 const SUPABASE_URL = window.SUPABASE_URL || "";
@@ -82,6 +83,15 @@ function escaparTextoParaOnclick(texto) {
   return String(texto)
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'");
+}
+
+function escaparHtml(texto) {
+  return String(texto || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function normalizarNombrePlanta(nombre) {
@@ -187,6 +197,57 @@ function guardarHuertoLocal(lista) {
   localStorage.setItem(STORAGE_KEY_HUERTO, JSON.stringify(lista));
 }
 
+function cargarAnotacionesHuerto() {
+  const guardado = localStorage.getItem(STORAGE_ANOTACIONES_HUERTO_KEY);
+  if (!guardado) return {};
+
+  try {
+    const mapa = JSON.parse(guardado);
+    return mapa && typeof mapa === "object" ? mapa : {};
+  } catch {
+    return {};
+  }
+}
+
+function guardarAnotacionesHuerto(mapa) {
+  localStorage.setItem(STORAGE_ANOTACIONES_HUERTO_KEY, JSON.stringify(mapa));
+}
+
+function obtenerAnotacionHuertoPorId(id) {
+  const mapa = cargarAnotacionesHuerto();
+  return mapa[String(id)] || {};
+}
+
+function guardarAnotacionHuertoPorId(id, datos) {
+  const mapa = cargarAnotacionesHuerto();
+  const clave = String(id);
+  const anterior = mapa[clave] || {};
+  const actualizado = {
+    ...anterior,
+    ...datos
+  };
+
+  const sinFecha = !actualizado.fechaAnotacion;
+  const sinFoto = !actualizado.foto;
+
+  if (sinFecha && sinFoto) {
+    delete mapa[clave];
+  } else {
+    mapa[clave] = {
+      fechaAnotacion: actualizado.fechaAnotacion || "",
+      foto: actualizado.foto || ""
+    };
+  }
+
+  guardarAnotacionesHuerto(mapa);
+}
+
+function eliminarAnotacionHuertoPorId(id) {
+  const mapa = cargarAnotacionesHuerto();
+  delete mapa[String(id)];
+  guardarAnotacionesHuerto(mapa);
+}
+
 function cultivoDesdeFilaHuerto(fila) {
   return {
     id: fila.id,
@@ -195,7 +256,9 @@ function cultivoDesdeFilaHuerto(fila) {
     cantidad: fila.cantidad,
     esPorSemilla: fila.es_por_semilla,
     lugar: fila.lugar || "",
-    notas: fila.notas || ""
+    notas: fila.notas || "",
+    fechaAnotacion: fila.fecha_anotacion || "",
+    foto: fila.foto_url || ""
   };
 }
 
@@ -206,7 +269,9 @@ function filaDesdeCultivo(cultivo) {
     cantidad: cultivo.cantidad,
     es_por_semilla: cultivo.esPorSemilla !== false,
     lugar: cultivo.lugar || "",
-    notas: cultivo.notas || ""
+    notas: cultivo.notas || "",
+    fecha_anotacion: cultivo.fechaAnotacion || null,
+    foto_url: cultivo.foto || null
   };
 }
 
@@ -217,10 +282,26 @@ async function cargarHuertoPersistido() {
 
   const { data, error } = await supabaseClient
     .from("huerto")
-    .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, created_at")
+    .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, fecha_anotacion, foto_url, created_at")
     .order("created_at", { ascending: false });
 
   if (error) {
+    const esErrorColumnasAnotacion = /fecha_anotacion|foto_url/i.test(error.message || "");
+
+    if (esErrorColumnasAnotacion) {
+      const { data: dataBase, error: errorBase } = await supabaseClient
+        .from("huerto")
+        .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, created_at")
+        .order("created_at", { ascending: false });
+
+      if (errorBase) {
+        console.error("No se pudo cargar MiHuerto desde Supabase:", errorBase.message);
+        return cargarHuertoLocal();
+      }
+
+      return dataBase.map(cultivoDesdeFilaHuerto);
+    }
+
     console.error("No se pudo cargar MiHuerto desde Supabase:", error.message);
     return cargarHuertoLocal();
   }
@@ -256,6 +337,90 @@ async function eliminarCultivoPersistido(id) {
     .from("huerto")
     .delete()
     .eq("id", id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+function mapearCambiosCultivoAFila(cambios) {
+  const fila = {};
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "planta")) {
+    fila.planta = cambios.planta;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "fechaInicio")
+    || Object.prototype.hasOwnProperty.call(cambios, "fechaSiembra")) {
+    fila.fecha_inicio = cambios.fechaInicio || cambios.fechaSiembra;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "cantidad")) {
+    fila.cantidad = cambios.cantidad;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "esPorSemilla")) {
+    fila.es_por_semilla = cambios.esPorSemilla !== false;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "lugar")) {
+    fila.lugar = cambios.lugar || "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "notas")) {
+    fila.notas = cambios.notas || "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "fechaAnotacion")) {
+    fila.fecha_anotacion = cambios.fechaAnotacion || null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(cambios, "foto")) {
+    fila.foto_url = cambios.foto || null;
+  }
+
+  return fila;
+}
+
+async function actualizarCultivoPersistido(id, cambios) {
+  if (!usaNubeHuerto) {
+    const lista = cargarHuertoLocal().map(item => (
+      String(item.id) === String(id)
+        ? { ...item, ...cambios }
+        : item
+    ));
+    guardarHuertoLocal(lista);
+    return;
+  }
+
+  const filaCambios = mapearCambiosCultivoAFila(cambios);
+  let { error } = await supabaseClient
+    .from("huerto")
+    .update(filaCambios)
+    .eq("id", id);
+
+  const requiereColumnasAnotacion = Object.prototype.hasOwnProperty.call(filaCambios, "fecha_anotacion")
+    || Object.prototype.hasOwnProperty.call(filaCambios, "foto_url");
+
+  if (error && requiereColumnasAnotacion && /fecha_anotacion|foto_url/i.test(error.message || "")) {
+    const sinAnotaciones = { ...filaCambios };
+    delete sinAnotaciones.fecha_anotacion;
+    delete sinAnotaciones.foto_url;
+
+    if (Object.keys(sinAnotaciones).length > 0) {
+      const resultado = await supabaseClient
+        .from("huerto")
+        .update(sinAnotaciones)
+        .eq("id", id);
+
+      error = resultado.error;
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+
+    throw new Error("Tu tabla huerto todavía no tiene fecha_anotacion/foto_url. Ejecutá la migración SQL para guardar fecha y foto en Supabase.");
+  }
 
   if (error) {
     throw new Error(error.message);
@@ -329,7 +494,16 @@ async function migrarHuertoLocalASupabaseSiCorresponde() {
 }
 
 async function refrescarMiHuerto() {
-  cacheHuerto = await cargarHuertoPersistido();
+  const base = await cargarHuertoPersistido();
+  cacheHuerto = base.map(cultivo => {
+    const extra = obtenerAnotacionHuertoPorId(cultivo.id);
+    return {
+      ...cultivo,
+      fechaAnotacion: cultivo.fechaAnotacion || extra.fechaAnotacion || "",
+      foto: cultivo.foto || extra.foto || ""
+    };
+  });
+
   renderMiHuerto();
 }
 
@@ -943,6 +1117,8 @@ function renderMiHuerto() {
     const plantaBase = plantas.find(p => p.nombre === cultivo.planta);
     const fechaInicio = cultivo.fechaInicio || cultivo.fechaSiembra;
     const esPorSemilla = cultivo.esPorSemilla !== false;
+    const fechaAnotacion = cultivo.fechaAnotacion || "";
+    const fotoPersonalizada = cultivo.foto || "";
 
     if (!fechaInicio) return;
 
@@ -970,28 +1146,76 @@ function renderMiHuerto() {
       ? `<p><strong>Cosecha:</strong> ${formatearFecha(fechaCosecha)}</p>`
       : `<p><strong>Cosecha:</strong> -</p>`;
     const calendarioTexto = plantaBase ? "" : `<p><strong>Calendario:</strong> cultivo agregado manualmente</p>`;
-    const notasTexto = cultivo.notas ? `<p><strong>Notas:</strong> ${cultivo.notas}</p>` : "";
+    const notasTexto = cultivo.notas
+      ? `<p><strong>Notas:</strong> ${escaparHtml(cultivo.notas)}</p>`
+      : `<p><strong>Notas:</strong> -</p>`;
+    const fechaAnotacionTexto = fechaAnotacion
+      ? `<p><strong>Fecha anotación:</strong> ${formatearFecha(new Date(fechaAnotacion + "T00:00:00"))}</p>`
+      : `<p><strong>Fecha anotación:</strong> -</p>`;
+    const imagenCultivo = obtenerRutaImagen(fotoPersonalizada) || (plantaBase ? obtenerImagenPlanta(plantaBase) : "");
 
     const card = document.createElement("div");
     card.className = "card";
     const nombreSeguro = escaparTextoParaOnclick(cultivo.planta);
     const idSeguro = escaparTextoParaOnclick(String(cultivo.id));
+    const notasSeguro = escaparHtml(cultivo.notas || "");
+    const fechaAnotacionSeguro = escaparHtml(fechaAnotacion);
+    const fotoSeguro = escaparHtml(fotoPersonalizada);
     const tituloCultivo = plantaBase
       ? `<button class="card-link-titulo" type="button" onclick="irACatalogo('${nombreSeguro}')">${cultivo.planta}</button>`
-      : cultivo.planta;
+      : escaparHtml(cultivo.planta);
+
+    const mediaCultivo = imagenCultivo
+      ? `<img src="${imagenCultivo}" alt="${escaparHtml(cultivo.planta)}">`
+      : `<div class="card-placeholder">Sin imagen disponible</div>`;
 
     card.innerHTML = `
-      ${crearMediaPlanta(plantaBase, cultivo.planta)}
+      ${mediaCultivo}
       <div class="card-body">
         <h3>${tituloCultivo}</h3>
         <p><strong>${esPorSemilla ? "Siembra" : "Incorporación"}:</strong> ${formatearFecha(new Date(fechaInicio))}</p>
         ${germinacionTexto}
         ${cosechaTexto}
         ${cantidadTexto}
-        <p><strong>Lugar:</strong> ${cultivo.lugar || "-"}</p>
+        <p><strong>Lugar:</strong> ${escaparHtml(cultivo.lugar || "-")}</p>
         ${calendarioTexto}
         ${notasTexto}
+        ${fechaAnotacionTexto}
         <span class="estado ${estado.clase}">${estado.texto}</span>
+
+        <details class="editor-anotacion">
+          <summary>Editar nota y foto</summary>
+          <form class="form-anotacion" data-id="${idSeguro}" data-foto-actual="${fotoSeguro}" onsubmit="guardarAnotacionCultivo(event, '${idSeguro}')">
+            <label>
+              Fecha de anotación
+              <input type="date" name="fechaAnotacion" value="${fechaAnotacionSeguro}">
+            </label>
+
+            <label>
+              Nota
+              <textarea name="notas" placeholder="Ej: Hoy la vi más grande, regué menos...">${notasSeguro}</textarea>
+            </label>
+
+            <label>
+              Foto (URL o ruta)
+              <input type="text" name="fotoUrl" value="${fotoSeguro}" placeholder="/img/mi-planta.jpg o https://...">
+            </label>
+
+            <label>
+              O subir una foto
+              <input type="file" name="fotoArchivo" accept="image/*">
+            </label>
+
+            <label class="opcion-check opcion-check-anotacion" for="quitarFoto-${idSeguro}">
+              <input type="checkbox" name="quitarFoto" id="quitarFoto-${idSeguro}">
+              Quitar foto personalizada
+            </label>
+
+            <div class="acciones">
+              <button type="submit" class="btn-secundario">Guardar anotación</button>
+            </div>
+          </form>
+        </details>
 
         <div class="acciones">
           <button class="btn-danger" onclick="eliminarCultivo('${idSeguro}')">
@@ -1008,9 +1232,62 @@ function renderMiHuerto() {
 async function eliminarCultivo(id) {
   try {
     await eliminarCultivoPersistido(id);
+    eliminarAnotacionHuertoPorId(id);
     await refrescarMiHuerto();
   } catch (error) {
     alert(`No se pudo eliminar el cultivo: ${error.message}`);
+  }
+}
+
+function leerArchivoComoDataURL(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = () => resolve(String(lector.result || ""));
+    lector.onerror = () => reject(new Error("No se pudo leer la imagen seleccionada."));
+    lector.readAsDataURL(archivo);
+  });
+}
+
+async function guardarAnotacionCultivo(event, id) {
+  event.preventDefault();
+  const formulario = event.currentTarget;
+
+  const notas = String(formulario.elements.notas?.value || "").trim();
+  const fechaAnotacion = String(formulario.elements.fechaAnotacion?.value || "").trim();
+  const fotoUrl = String(formulario.elements.fotoUrl?.value || "").trim();
+  const quitarFoto = Boolean(formulario.elements.quitarFoto?.checked);
+  const archivo = formulario.elements.fotoArchivo?.files?.[0];
+  const fotoActual = String(formulario.dataset.fotoActual || "").trim();
+
+  let fotoFinal = fotoUrl || fotoActual;
+
+  if (quitarFoto) {
+    fotoFinal = "";
+  }
+
+  if (archivo) {
+    try {
+      fotoFinal = await leerArchivoComoDataURL(archivo);
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
+  }
+
+  try {
+    await actualizarCultivoPersistido(id, {
+      notas,
+      fechaAnotacion,
+      foto: fotoFinal
+    });
+
+    guardarAnotacionHuertoPorId(id, {
+      fechaAnotacion,
+      foto: fotoFinal
+    });
+    await refrescarMiHuerto();
+  } catch (error) {
+    alert(`No se pudo guardar la anotación: ${error.message}`);
   }
 }
 
@@ -1103,6 +1380,7 @@ window.abrirModal = abrirModal;
 window.editarPlanta = editarPlanta;
 window.eliminarCultivo = eliminarCultivo;
 window.irACatalogo = irACatalogo;
+window.guardarAnotacionCultivo = guardarAnotacionCultivo;
 
 init().catch((error) => {
   console.error("Error al iniciar la app:", error);

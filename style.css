@@ -596,6 +596,38 @@ button:hover {
   margin-top: 12px;
 }
 
+.editor-anotacion {
+  margin-top: 12px;
+  border: 1px solid #dfe8d9;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f6fbf3;
+}
+
+.editor-anotacion summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #2f4d2f;
+}
+
+.form-anotacion {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.form-anotacion label {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+  color: #2c3f2c;
+}
+
+.opcion-check-anotacion {
+  padding: 8px 10px;
+  margin-top: 2px;
+}
+
 .btn-secundario {
   background: #7b9e78;
 }
