@@ -285,7 +285,8 @@ function cultivoDesdeFilaHuerto(fila) {
     lugar: fila.lugar || "",
     notas: fila.notas || "",
     fechaAnotacion: fila.fecha_anotacion || "",
-    foto: fila.foto_url || ""
+    foto: fila.foto_url || "",
+    historial: normalizarHistorialAnotaciones(fila.historial_json)
   };
 }
 
@@ -298,7 +299,8 @@ function filaDesdeCultivo(cultivo) {
     lugar: cultivo.lugar || "",
     notas: cultivo.notas || "",
     fecha_anotacion: cultivo.fechaAnotacion || null,
-    foto_url: cultivo.foto || null
+    foto_url: cultivo.foto || null,
+    historial_json: normalizarHistorialAnotaciones(cultivo.historial)
   };
 }
 
@@ -309,11 +311,11 @@ async function cargarHuertoPersistido() {
 
   const { data, error } = await supabaseClient
     .from("huerto")
-    .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, fecha_anotacion, foto_url, created_at")
+    .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, fecha_anotacion, foto_url, historial_json, created_at")
     .order("created_at", { ascending: false });
 
   if (error) {
-    const esErrorColumnasAnotacion = /fecha_anotacion|foto_url/i.test(error.message || "");
+    const esErrorColumnasAnotacion = /fecha_anotacion|foto_url|historial_json/i.test(error.message || "");
 
     if (esErrorColumnasAnotacion) {
       const { data: dataBase, error: errorBase } = await supabaseClient
@@ -406,6 +408,10 @@ function mapearCambiosCultivoAFila(cambios) {
     fila.foto_url = cambios.foto || null;
   }
 
+  if (Object.prototype.hasOwnProperty.call(cambios, "historial")) {
+    fila.historial_json = normalizarHistorialAnotaciones(cambios.historial);
+  }
+
   return fila;
 }
 
@@ -427,12 +433,14 @@ async function actualizarCultivoPersistido(id, cambios) {
     .eq("id", id);
 
   const requiereColumnasAnotacion = Object.prototype.hasOwnProperty.call(filaCambios, "fecha_anotacion")
-    || Object.prototype.hasOwnProperty.call(filaCambios, "foto_url");
+    || Object.prototype.hasOwnProperty.call(filaCambios, "foto_url")
+    || Object.prototype.hasOwnProperty.call(filaCambios, "historial_json");
 
-  if (error && requiereColumnasAnotacion && /fecha_anotacion|foto_url/i.test(error.message || "")) {
+  if (error && requiereColumnasAnotacion && /fecha_anotacion|foto_url|historial_json/i.test(error.message || "")) {
     const sinAnotaciones = { ...filaCambios };
     delete sinAnotaciones.fecha_anotacion;
     delete sinAnotaciones.foto_url;
+    delete sinAnotaciones.historial_json;
 
     if (Object.keys(sinAnotaciones).length > 0) {
       const resultado = await supabaseClient
@@ -446,7 +454,7 @@ async function actualizarCultivoPersistido(id, cambios) {
       }
     }
 
-    throw new Error("Tu tabla huerto todavía no tiene fecha_anotacion/foto_url. Ejecutá la migración SQL para guardar fecha y foto en Supabase.");
+    throw new Error("Tu tabla huerto todavía no tiene fecha_anotacion/foto_url/historial_json. Ejecutá la migración SQL para guardar fecha, foto y bitácora en Supabase.");
   }
 
   if (error) {
@@ -528,7 +536,9 @@ async function refrescarMiHuerto() {
       ...cultivo,
       fechaAnotacion: cultivo.fechaAnotacion || extra.fechaAnotacion || "",
       foto: cultivo.foto || extra.foto || "",
-      historial: normalizarHistorialAnotaciones(cultivo.historial || extra.historial)
+      historial: normalizarHistorialAnotaciones(cultivo.historial).length
+        ? normalizarHistorialAnotaciones(cultivo.historial)
+        : normalizarHistorialAnotaciones(extra.historial)
     };
   });
 
@@ -1388,6 +1398,16 @@ async function agregarAccionCultivo(event, id) {
     texto
   });
 
+  const cultivo = cacheHuerto.find(item => String(item.id) === String(id));
+  if (cultivo && usaNubeHuerto) {
+    try {
+      await actualizarCultivoPersistido(id, { historial });
+    } catch (error) {
+      alert(`No se pudo guardar la acción en la nube: ${error.message}`);
+      return;
+    }
+  }
+
   guardarAnotacionHuertoPorId(id, { historial });
   await refrescarMiHuerto();
 }
@@ -1423,6 +1443,16 @@ async function editarAccionCultivo(id, accionId) {
     fecha
   };
 
+  const cultivo = cacheHuerto.find(item => String(item.id) === String(id));
+  if (cultivo && usaNubeHuerto) {
+    try {
+      await actualizarCultivoPersistido(id, { historial });
+    } catch (error) {
+      alert(`No se pudo editar la acción en la nube: ${error.message}`);
+      return;
+    }
+  }
+
   guardarAnotacionHuertoPorId(id, { historial });
   await refrescarMiHuerto();
 }
@@ -1434,6 +1464,16 @@ async function eliminarAccionCultivo(id, accionId) {
   const anotacion = obtenerAnotacionHuertoPorId(id);
   const historial = normalizarHistorialAnotaciones(anotacion.historial)
     .filter(accion => String(accion.id) !== String(accionId));
+
+  const cultivo = cacheHuerto.find(item => String(item.id) === String(id));
+  if (cultivo && usaNubeHuerto) {
+    try {
+      await actualizarCultivoPersistido(id, { historial });
+    } catch (error) {
+      alert(`No se pudo eliminar la acción en la nube: ${error.message}`);
+      return;
+    }
+  }
 
   guardarAnotacionHuertoPorId(id, { historial });
   await refrescarMiHuerto();
