@@ -56,9 +56,45 @@ const supabaseClient = window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 const usaNubeHuerto = Boolean(supabaseClient);
+let nubeHuertoDisponible = usaNubeHuerto;
+let avisoNubeNoDisponibleMostrado = false;
 
 let plantaEnEdicionOrigen = null;
 let cacheHuerto = [];
+
+function debeUsarNubeHuerto() {
+  return usaNubeHuerto && nubeHuertoDisponible;
+}
+
+function mensajeDesdeError(error, fallback = "Error desconocido") {
+  if (!error) return fallback;
+  if (typeof error.message === "string" && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
+function esErrorDeRed(error) {
+  const mensaje = mensajeDesdeError(error, "");
+  if (!mensaje) return false;
+
+  return /failed to fetch|networkerror|load failed|network request failed/i.test(mensaje);
+}
+
+function desactivarNubePorErrorDeRed(error, contexto) {
+  if (!debeUsarNubeHuerto() || !esErrorDeRed(error)) {
+    return false;
+  }
+
+  nubeHuertoDisponible = false;
+  console.warn(`MiHuerto: Supabase no disponible (${contexto}). Se usa almacenamiento local.`, error);
+
+  if (!avisoNubeNoDisponibleMostrado) {
+    avisoNubeNoDisponibleMostrado = true;
+    alert("No se pudo conectar con la nube de MiHuerto. Se guardará en este dispositivo (localStorage) hasta que vuelva la conexión.");
+  }
+
+  return true;
+}
 
 // ============================
 // UTILIDADES
@@ -305,23 +341,51 @@ function filaDesdeCultivo(cultivo) {
 }
 
 async function cargarHuertoPersistido() {
-  if (!usaNubeHuerto) {
+  if (!debeUsarNubeHuerto()) {
     return cargarHuertoLocal();
   }
 
-  const { data, error } = await supabaseClient
-    .from("huerto")
-    .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, fecha_anotacion, foto_url, historial_json, created_at")
-    .order("created_at", { ascending: false });
+  let data;
+  let error;
+
+  try {
+    const resultado = await supabaseClient
+      .from("huerto")
+      .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, fecha_anotacion, foto_url, historial_json, created_at")
+      .order("created_at", { ascending: false });
+    data = resultado.data;
+    error = resultado.error;
+  } catch (errorDeRed) {
+    if (desactivarNubePorErrorDeRed(errorDeRed, "carga de cultivos")) {
+      return cargarHuertoLocal();
+    }
+
+    console.error("No se pudo cargar MiHuerto desde Supabase:", mensajeDesdeError(errorDeRed));
+    return cargarHuertoLocal();
+  }
 
   if (error) {
     const esErrorColumnasAnotacion = /fecha_anotacion|foto_url|historial_json/i.test(error.message || "");
 
     if (esErrorColumnasAnotacion) {
-      const { data: dataBase, error: errorBase } = await supabaseClient
-        .from("huerto")
-        .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, created_at")
-        .order("created_at", { ascending: false });
+      let dataBase;
+      let errorBase;
+
+      try {
+        const resultadoBase = await supabaseClient
+          .from("huerto")
+          .select("id, planta, fecha_inicio, cantidad, es_por_semilla, lugar, notas, created_at")
+          .order("created_at", { ascending: false });
+        dataBase = resultadoBase.data;
+        errorBase = resultadoBase.error;
+      } catch (errorDeRedBase) {
+        if (desactivarNubePorErrorDeRed(errorDeRedBase, "carga de cultivos base")) {
+          return cargarHuertoLocal();
+        }
+
+        console.error("No se pudo cargar MiHuerto desde Supabase:", mensajeDesdeError(errorDeRedBase));
+        return cargarHuertoLocal();
+      }
 
       if (errorBase) {
         console.error("No se pudo cargar MiHuerto desde Supabase:", errorBase.message);
@@ -339,36 +403,63 @@ async function cargarHuertoPersistido() {
 }
 
 async function guardarCultivoPersistido(cultivo) {
-  if (!usaNubeHuerto) {
+  if (!debeUsarNubeHuerto()) {
     const lista = cargarHuertoLocal();
-    lista.push(cultivo);
+    lista.push({
+      ...cultivo,
+      id: cultivo.id ?? Date.now()
+    });
     guardarHuertoLocal(lista);
     return;
   }
 
-  const { error } = await supabaseClient
-    .from("huerto")
-    .insert(filaDesdeCultivo(cultivo));
+  try {
+    const { error } = await supabaseClient
+      .from("huerto")
+      .insert(filaDesdeCultivo(cultivo));
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error) {
+    if (desactivarNubePorErrorDeRed(error, "alta de cultivo")) {
+      const lista = cargarHuertoLocal();
+      lista.push({
+        ...cultivo,
+        id: cultivo.id ?? Date.now()
+      });
+      guardarHuertoLocal(lista);
+      return;
+    }
+
+    throw new Error(mensajeDesdeError(error, "No se pudo guardar el cultivo"));
   }
 }
 
 async function eliminarCultivoPersistido(id) {
-  if (!usaNubeHuerto) {
+  if (!debeUsarNubeHuerto()) {
     const lista = cargarHuertoLocal().filter(item => String(item.id) !== String(id));
     guardarHuertoLocal(lista);
     return;
   }
 
-  const { error } = await supabaseClient
-    .from("huerto")
-    .delete()
-    .eq("id", id);
+  try {
+    const { error } = await supabaseClient
+      .from("huerto")
+      .delete()
+      .eq("id", id);
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error) {
+    if (desactivarNubePorErrorDeRed(error, "eliminación de cultivo")) {
+      const lista = cargarHuertoLocal().filter(item => String(item.id) !== String(id));
+      guardarHuertoLocal(lista);
+      return;
+    }
+
+    throw new Error(mensajeDesdeError(error, "No se pudo eliminar el cultivo"));
   }
 }
 
@@ -416,7 +507,7 @@ function mapearCambiosCultivoAFila(cambios) {
 }
 
 async function actualizarCultivoPersistido(id, cambios) {
-  if (!usaNubeHuerto) {
+  if (!debeUsarNubeHuerto()) {
     const lista = cargarHuertoLocal().map(item => (
       String(item.id) === String(id)
         ? { ...item, ...cambios }
@@ -427,10 +518,27 @@ async function actualizarCultivoPersistido(id, cambios) {
   }
 
   const filaCambios = mapearCambiosCultivoAFila(cambios);
-  let { error } = await supabaseClient
-    .from("huerto")
-    .update(filaCambios)
-    .eq("id", id);
+  let error;
+
+  try {
+    const resultado = await supabaseClient
+      .from("huerto")
+      .update(filaCambios)
+      .eq("id", id);
+    error = resultado.error;
+  } catch (errorDeRed) {
+    if (desactivarNubePorErrorDeRed(errorDeRed, "actualización de cultivo")) {
+      const lista = cargarHuertoLocal().map(item => (
+        String(item.id) === String(id)
+          ? { ...item, ...cambios }
+          : item
+      ));
+      guardarHuertoLocal(lista);
+      return;
+    }
+
+    throw new Error(mensajeDesdeError(errorDeRed, "No se pudo actualizar el cultivo"));
+  }
 
   const requiereColumnasAnotacion = Object.prototype.hasOwnProperty.call(filaCambios, "fecha_anotacion")
     || Object.prototype.hasOwnProperty.call(filaCambios, "foto_url")
@@ -443,10 +551,25 @@ async function actualizarCultivoPersistido(id, cambios) {
     delete sinAnotaciones.historial_json;
 
     if (Object.keys(sinAnotaciones).length > 0) {
-      const resultado = await supabaseClient
-        .from("huerto")
-        .update(sinAnotaciones)
-        .eq("id", id);
+      let resultado;
+      try {
+        resultado = await supabaseClient
+          .from("huerto")
+          .update(sinAnotaciones)
+          .eq("id", id);
+      } catch (errorDeRedSecundario) {
+        if (desactivarNubePorErrorDeRed(errorDeRedSecundario, "actualización secundaria de cultivo")) {
+          const lista = cargarHuertoLocal().map(item => (
+            String(item.id) === String(id)
+              ? { ...item, ...cambios }
+              : item
+          ));
+          guardarHuertoLocal(lista);
+          return;
+        }
+
+        throw new Error(mensajeDesdeError(errorDeRedSecundario, "No se pudo actualizar el cultivo"));
+      }
 
       error = resultado.error;
       if (error) {
@@ -465,7 +588,7 @@ async function actualizarCultivoPersistido(id, cambios) {
 async function renombrarCultivosPersistidos(nombreAnterior, nombreNuevo) {
   if (!nombreAnterior || !nombreNuevo || nombreAnterior === nombreNuevo) return;
 
-  if (!usaNubeHuerto) {
+  if (!debeUsarNubeHuerto()) {
     const huerto = cargarHuertoLocal();
     let huboCambios = false;
 
@@ -481,10 +604,21 @@ async function renombrarCultivosPersistidos(nombreAnterior, nombreNuevo) {
     return;
   }
 
-  const { error } = await supabaseClient
-    .from("huerto")
-    .update({ planta: nombreNuevo })
-    .eq("planta", nombreAnterior);
+  let error;
+  try {
+    const resultado = await supabaseClient
+      .from("huerto")
+      .update({ planta: nombreNuevo })
+      .eq("planta", nombreAnterior);
+    error = resultado.error;
+  } catch (errorDeRed) {
+    if (desactivarNubePorErrorDeRed(errorDeRed, "renombre de cultivos")) {
+      return;
+    }
+
+    console.error("No se pudieron renombrar cultivos en Supabase:", mensajeDesdeError(errorDeRed));
+    return;
+  }
 
   if (error) {
     console.error("No se pudieron renombrar cultivos en Supabase:", error.message);
@@ -492,7 +626,7 @@ async function renombrarCultivosPersistidos(nombreAnterior, nombreNuevo) {
 }
 
 async function migrarHuertoLocalASupabaseSiCorresponde() {
-  if (!usaNubeHuerto) return;
+  if (!debeUsarNubeHuerto()) return;
   if (localStorage.getItem(STORAGE_MIGRACION_HUERTO_KEY) === "ok") return;
 
   const local = cargarHuertoLocal();
@@ -501,9 +635,23 @@ async function migrarHuertoLocalASupabaseSiCorresponde() {
     return;
   }
 
-  const { count, error: errorConteo } = await supabaseClient
-    .from("huerto")
-    .select("id", { count: "exact", head: true });
+  let count;
+  let errorConteo;
+
+  try {
+    const conteo = await supabaseClient
+      .from("huerto")
+      .select("id", { count: "exact", head: true });
+    count = conteo.count;
+    errorConteo = conteo.error;
+  } catch (errorDeRed) {
+    if (desactivarNubePorErrorDeRed(errorDeRed, "verificación de migración")) {
+      return;
+    }
+
+    console.error("No se pudo verificar migración de MiHuerto:", mensajeDesdeError(errorDeRed));
+    return;
+  }
 
   if (errorConteo) {
     console.error("No se pudo verificar migración de MiHuerto:", errorConteo.message);
@@ -516,9 +664,20 @@ async function migrarHuertoLocalASupabaseSiCorresponde() {
   }
 
   const filas = local.map(filaDesdeCultivo);
-  const { error } = await supabaseClient
-    .from("huerto")
-    .insert(filas);
+  let error;
+  try {
+    const resultado = await supabaseClient
+      .from("huerto")
+      .insert(filas);
+    error = resultado.error;
+  } catch (errorDeRed) {
+    if (desactivarNubePorErrorDeRed(errorDeRed, "migración inicial")) {
+      return;
+    }
+
+    console.error("No se pudo migrar MiHuerto a Supabase:", mensajeDesdeError(errorDeRed));
+    return;
+  }
 
   if (error) {
     console.error("No se pudo migrar MiHuerto a Supabase:", error.message);
@@ -1399,7 +1558,7 @@ async function agregarAccionCultivo(event, id) {
   });
 
   const cultivo = cacheHuerto.find(item => String(item.id) === String(id));
-  if (cultivo && usaNubeHuerto) {
+  if (cultivo && debeUsarNubeHuerto()) {
     try {
       await actualizarCultivoPersistido(id, { historial });
     } catch (error) {
@@ -1444,7 +1603,7 @@ async function editarAccionCultivo(id, accionId) {
   };
 
   const cultivo = cacheHuerto.find(item => String(item.id) === String(id));
-  if (cultivo && usaNubeHuerto) {
+  if (cultivo && debeUsarNubeHuerto()) {
     try {
       await actualizarCultivoPersistido(id, { historial });
     } catch (error) {
@@ -1466,7 +1625,7 @@ async function eliminarAccionCultivo(id, accionId) {
     .filter(accion => String(accion.id) !== String(accionId));
 
   const cultivo = cacheHuerto.find(item => String(item.id) === String(id));
-  if (cultivo && usaNubeHuerto) {
+  if (cultivo && debeUsarNubeHuerto()) {
     try {
       await actualizarCultivoPersistido(id, { historial });
     } catch (error) {
@@ -1497,7 +1656,7 @@ async function manejarSubmitHuerto(e) {
   const cantidad = huertoCantidad.value ? Number(huertoCantidad.value) : null;
 
   const nuevaSiembra = {
-    id: usaNubeHuerto ? undefined : Date.now(),
+    id: debeUsarNubeHuerto() ? undefined : Date.now(),
     planta: nombreCultivo,
     fechaInicio: huertoFecha.value,
     cantidad,
