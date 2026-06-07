@@ -1826,19 +1826,29 @@ async function guardarAnotacionCultivo(event, id) {
     });
   }
 
+  let errorSincronizacion = null;
+
   try {
     await actualizarCultivoPersistido(id, {
       notas,
       fechaAnotacion,
-      foto: fotoFinal
+      foto: fotoFinal,
+      galeriaFotos
     });
+  } catch (error) {
+    errorSincronizacion = error;
+  }
 
+  try {
     guardarAnotacionHuertoPorId(id, {
       fechaAnotacion,
       foto: fotoFinal,
       galeriaFotos
     });
     await refrescarMiHuerto();
+    if (errorSincronizacion) {
+      alert(`La foto complementaria se guardó en este dispositivo, pero no se pudo sincronizar todo en la nube: ${mensajeDesdeError(errorSincronizacion)}`);
+    }
   } catch (error) {
     alert(`No se pudo guardar la anotación: ${error.message}`);
   }
