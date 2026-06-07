@@ -283,6 +283,24 @@ function normalizarHistorialAnotaciones(historial) {
     .filter(Boolean);
 }
 
+function normalizarGaleriaFotos(galeria) {
+  if (!Array.isArray(galeria)) return [];
+
+  return galeria
+    .map((item, index) => {
+      const url = obtenerRutaImagen(item?.url || item?.foto || "");
+      if (!url) return null;
+
+      const fecha = String(item?.fecha || "").trim();
+      return {
+        id: String(item?.id || `foto-${index}`),
+        fecha,
+        url
+      };
+    })
+    .filter(Boolean);
+}
+
 function obtenerAnotacionHuertoPorId(id) {
   const mapa = cargarAnotacionesHuerto();
   const guardada = mapa[String(id)] || {};
@@ -290,7 +308,8 @@ function obtenerAnotacionHuertoPorId(id) {
   return {
     fechaAnotacion: guardada.fechaAnotacion || "",
     foto: guardada.foto || "",
-    historial: normalizarHistorialAnotaciones(guardada.historial)
+    historial: normalizarHistorialAnotaciones(guardada.historial),
+    galeriaFotos: normalizarGaleriaFotos(guardada.galeriaFotos)
   };
 }
 
@@ -307,14 +326,17 @@ function guardarAnotacionHuertoPorId(id, datos) {
   const sinFoto = !actualizado.foto;
   const historial = normalizarHistorialAnotaciones(actualizado.historial);
   const sinHistorial = historial.length === 0;
+  const galeriaFotos = normalizarGaleriaFotos(actualizado.galeriaFotos);
+  const sinGaleria = galeriaFotos.length === 0;
 
-  if (sinFecha && sinFoto && sinHistorial) {
+  if (sinFecha && sinFoto && sinHistorial && sinGaleria) {
     delete mapa[clave];
   } else {
     mapa[clave] = {
       fechaAnotacion: actualizado.fechaAnotacion || "",
       foto: actualizado.foto || "",
-      historial
+      historial,
+      galeriaFotos
     };
   }
 
@@ -859,7 +881,10 @@ async function refrescarMiHuerto() {
       foto: cultivo.foto || extra.foto || "",
       historial: normalizarHistorialAnotaciones(cultivo.historial).length
         ? normalizarHistorialAnotaciones(cultivo.historial)
-        : normalizarHistorialAnotaciones(extra.historial)
+        : normalizarHistorialAnotaciones(extra.historial),
+      galeriaFotos: normalizarGaleriaFotos(cultivo.galeriaFotos).length
+        ? normalizarGaleriaFotos(cultivo.galeriaFotos)
+        : normalizarGaleriaFotos(extra.galeriaFotos)
     };
   });
 
@@ -1492,6 +1517,7 @@ function renderMiHuerto() {
     const fechaAnotacion = cultivo.fechaAnotacion || "";
     const fotoPersonalizada = cultivo.foto || "";
     const historial = normalizarHistorialAnotaciones(cultivo.historial);
+    const galeriaFotos = normalizarGaleriaFotos(cultivo.galeriaFotos);
 
     if (!fechaInicio) return;
 
@@ -1526,6 +1552,30 @@ function renderMiHuerto() {
       ? `<p><strong>Fecha anotación:</strong> ${formatearFecha(new Date(fechaAnotacion + "T00:00:00"))}</p>`
       : `<p><strong>Fecha anotación:</strong> -</p>`;
     const imagenCultivo = obtenerRutaImagen(fotoPersonalizada) || (plantaBase ? obtenerImagenPlanta(plantaBase) : "");
+    const galeriaOrdenada = galeriaFotos
+      .slice()
+      .sort((a, b) => String(b.fecha || "").localeCompare(String(a.fecha || "")));
+    const slides = [];
+
+    if (imagenCultivo) {
+      slides.push({
+        id: "principal",
+        url: imagenCultivo,
+        fecha: "",
+        etiqueta: "Referencia principal"
+      });
+    }
+
+    galeriaOrdenada.forEach(foto => {
+      slides.push({
+        id: foto.id,
+        url: foto.url,
+        fecha: foto.fecha,
+        etiqueta: foto.fecha
+          ? `Exposición: ${formatearFecha(new Date(foto.fecha + "T00:00:00"))}`
+          : "Exposición (sin fecha)"
+      });
+    });
 
     const card = document.createElement("div");
     card.className = "card";
@@ -1534,6 +1584,29 @@ function renderMiHuerto() {
     const notasSeguro = escaparHtml(cultivo.notas || "");
     const fechaAnotacionSeguro = escaparHtml(fechaAnotacion);
     const fotoSeguro = escaparHtml(fotoPersonalizada);
+    const fechaFotoExtraSegura = escaparHtml(fechaAnotacion || fechaISOHoy());
+    const galeriaResumenHtml = galeriaOrdenada.length
+      ? `
+        <ul class="historial-lista">
+          ${galeriaOrdenada.map(foto => {
+            const fotoIdSeguro = escaparTextoParaOnclick(String(foto.id));
+            const fechaTexto = foto.fecha
+              ? formatearFecha(new Date(foto.fecha + "T00:00:00"))
+              : "Sin fecha";
+            return `
+              <li class="historial-item">
+                <div class="historial-texto">
+                  <strong>${fechaTexto}</strong>
+                </div>
+                <div class="acciones">
+                  <button type="button" class="btn-danger btn-mini" onclick="eliminarFotoExposicionCultivo('${idSeguro}', '${fotoIdSeguro}')">Eliminar foto</button>
+                </div>
+              </li>
+            `;
+          }).join("")}
+        </ul>
+      `
+      : `<p class="historial-vacio">Todavía no agregaste fotos de exposición.</p>`;
     const historialHtml = historial.length
       ? `
         <ul class="historial-lista">
@@ -1563,8 +1636,21 @@ function renderMiHuerto() {
       ? `<button class="card-link-titulo" type="button" onclick="irACatalogo('${nombreSeguro}')">${cultivo.planta}</button>`
       : escaparHtml(cultivo.planta);
 
-    const mediaCultivo = imagenCultivo
-      ? `<img src="${imagenCultivo}" alt="${escaparHtml(cultivo.planta)}">`
+    const mediaCultivo = slides.length
+      ? `
+        <div class="carrusel-cultivo">
+          <button type="button" class="carrusel-btn carrusel-btn--prev" onclick="moverCarruselCultivo('${idSeguro}', -1)" aria-label="Foto anterior">‹</button>
+          <div class="carrusel-track" data-carrusel-id="${idSeguro}">
+            ${slides.map(slide => `
+              <figure class="carrusel-slide">
+                <img src="${escaparHtml(slide.url)}" alt="${escaparHtml(cultivo.planta)}">
+                <figcaption>${escaparHtml(slide.etiqueta)}</figcaption>
+              </figure>
+            `).join("")}
+          </div>
+          <button type="button" class="carrusel-btn carrusel-btn--next" onclick="moverCarruselCultivo('${idSeguro}', 1)" aria-label="Foto siguiente">›</button>
+        </div>
+      `
       : `<div class="card-placeholder">Sin imagen disponible</div>`;
 
     card.innerHTML = `
@@ -1604,6 +1690,21 @@ function renderMiHuerto() {
               <input type="file" name="fotoArchivo" accept="image/*">
             </label>
 
+            <label>
+              Fecha de exposición (foto adicional)
+              <input type="date" name="fechaFotoExtra" value="${fechaFotoExtraSegura}">
+            </label>
+
+            <label>
+              Foto adicional (URL o ruta)
+              <input type="text" name="fotoExtraUrl" placeholder="/img/exposicion.jpg o https://...">
+            </label>
+
+            <label>
+              O subir foto adicional
+              <input type="file" name="fotoExtraArchivo" accept="image/*">
+            </label>
+
             <label class="opcion-check opcion-check-anotacion" for="quitarFoto-${idSeguro}">
               <input type="checkbox" name="quitarFoto" id="quitarFoto-${idSeguro}">
               Quitar foto personalizada
@@ -1613,6 +1714,11 @@ function renderMiHuerto() {
               <button type="submit" class="btn-secundario">Guardar anotación</button>
             </div>
           </form>
+
+          <div class="historial-anotaciones">
+            <p><strong>Fotos de exposición:</strong></p>
+            ${galeriaResumenHtml}
+          </div>
         </details>
 
         <details class="editor-anotacion">
@@ -1678,9 +1784,15 @@ async function guardarAnotacionCultivo(event, id) {
   const fotoUrl = String(formulario.elements.fotoUrl?.value || "").trim();
   const quitarFoto = Boolean(formulario.elements.quitarFoto?.checked);
   const archivo = formulario.elements.fotoArchivo?.files?.[0];
+  const fotoExtraUrl = String(formulario.elements.fotoExtraUrl?.value || "").trim();
+  const archivoExtra = formulario.elements.fotoExtraArchivo?.files?.[0];
+  const fechaFotoExtra = String(formulario.elements.fechaFotoExtra?.value || "").trim() || fechaISOHoy();
   const fotoActual = String(formulario.dataset.fotoActual || "").trim();
+  const anotacionActual = obtenerAnotacionHuertoPorId(id);
+  const galeriaActual = normalizarGaleriaFotos(anotacionActual.galeriaFotos);
 
   let fotoFinal = fotoUrl || fotoActual;
+  let fotoExtraFinal = fotoExtraUrl;
 
   if (quitarFoto) {
     fotoFinal = "";
@@ -1695,6 +1807,25 @@ async function guardarAnotacionCultivo(event, id) {
     }
   }
 
+  if (archivoExtra) {
+    try {
+      fotoExtraFinal = await leerArchivoComoDataURL(archivoExtra);
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
+  }
+
+  const galeriaFotos = [...galeriaActual];
+
+  if (fotoExtraFinal) {
+    galeriaFotos.unshift({
+      id: `foto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fecha: fechaFotoExtra,
+      url: fotoExtraFinal
+    });
+  }
+
   try {
     await actualizarCultivoPersistido(id, {
       notas,
@@ -1704,12 +1835,36 @@ async function guardarAnotacionCultivo(event, id) {
 
     guardarAnotacionHuertoPorId(id, {
       fechaAnotacion,
-      foto: fotoFinal
+      foto: fotoFinal,
+      galeriaFotos
     });
     await refrescarMiHuerto();
   } catch (error) {
     alert(`No se pudo guardar la anotación: ${error.message}`);
   }
+}
+
+function moverCarruselCultivo(id, direccion) {
+  const track = document.querySelector(`[data-carrusel-id="${CSS.escape(String(id))}"]`);
+  if (!track) return;
+
+  const ancho = track.clientWidth;
+  track.scrollBy({
+    left: direccion * ancho,
+    behavior: "smooth"
+  });
+}
+
+async function eliminarFotoExposicionCultivo(id, fotoId) {
+  const confirmar = window.confirm("¿Eliminar esta foto de exposición?");
+  if (!confirmar) return;
+
+  const anotacion = obtenerAnotacionHuertoPorId(id);
+  const galeriaFotos = normalizarGaleriaFotos(anotacion.galeriaFotos)
+    .filter(foto => String(foto.id) !== String(fotoId));
+
+  guardarAnotacionHuertoPorId(id, { galeriaFotos });
+  await refrescarMiHuerto();
 }
 
 async function agregarAccionCultivo(event, id) {
@@ -1906,6 +2061,8 @@ window.guardarAnotacionCultivo = guardarAnotacionCultivo;
 window.agregarAccionCultivo = agregarAccionCultivo;
 window.editarAccionCultivo = editarAccionCultivo;
 window.eliminarAccionCultivo = eliminarAccionCultivo;
+window.moverCarruselCultivo = moverCarruselCultivo;
+window.eliminarFotoExposicionCultivo = eliminarFotoExposicionCultivo;
 
 init().catch((error) => {
   console.error("Error al iniciar la app:", error);
