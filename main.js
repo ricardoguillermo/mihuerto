@@ -1826,15 +1826,26 @@ async function guardarAnotacionCultivo(event, id) {
     });
   }
 
+  const fotoEsDataUrl = /^data:/i.test(String(fotoFinal || ""));
+  const hayFotosDataUrlEnGaleria = galeriaFotos.some(item => /^data:/i.test(String(item.url || "")));
+  const cambiosParaNube = {
+    notas,
+    fechaAnotacion
+  };
+
+  // Evita enviar blobs base64 a Supabase: se guardan localmente para que no falle el fetch.
+  if (!fotoEsDataUrl) {
+    cambiosParaNube.foto = fotoFinal;
+  }
+
+  if (!hayFotosDataUrlEnGaleria) {
+    cambiosParaNube.galeriaFotos = galeriaFotos;
+  }
+
   let errorSincronizacion = null;
 
   try {
-    await actualizarCultivoPersistido(id, {
-      notas,
-      fechaAnotacion,
-      foto: fotoFinal,
-      galeriaFotos
-    });
+    await actualizarCultivoPersistido(id, cambiosParaNube);
   } catch (error) {
     errorSincronizacion = error;
   }
@@ -1845,7 +1856,24 @@ async function guardarAnotacionCultivo(event, id) {
       foto: fotoFinal,
       galeriaFotos
     });
-    await refrescarMiHuerto();
+
+    try {
+      await refrescarMiHuerto();
+    } catch {
+      cacheHuerto = cacheHuerto.map(item => (
+        String(item.id) === String(id)
+          ? {
+            ...item,
+            notas,
+            fechaAnotacion,
+            foto: fotoFinal,
+            galeriaFotos
+          }
+          : item
+      ));
+      renderMiHuerto();
+    }
+
     if (errorSincronizacion) {
       alert(`La foto complementaria se guardó en este dispositivo, pero no se pudo sincronizar todo en la nube: ${mensajeDesdeError(errorSincronizacion)}`);
     }
