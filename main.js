@@ -38,6 +38,26 @@ const huertoNoSemilla = document.getElementById("huertoNoSemilla");
 const labelHuertoFecha = document.getElementById("labelHuertoFecha");
 const contenedorHuerto = document.getElementById("contenedorHuerto");
 const btnInicioDesdeHuerto = document.getElementById("btnInicioDesdeHuerto");
+const botonesIrSeccion = document.querySelectorAll("[data-ir-seccion]");
+const seccionCatalogo = document.getElementById("seccionCatalogo");
+const seccionHuerto = document.getElementById("seccionHuerto");
+const seccionNotas = document.getElementById("seccionNotas");
+
+const formMisNotas = document.getElementById("formMisNotas");
+const misNotasFecha = document.getElementById("misNotasFecha");
+const misNotasTexto = document.getElementById("misNotasTexto");
+const misNotasFotoUrl = document.getElementById("misNotasFotoUrl");
+const misNotasFotosArchivo = document.getElementById("misNotasFotosArchivo");
+const btnDictarNota = document.getElementById("btnDictarNota");
+const btnGrabarAudioNota = document.getElementById("btnGrabarAudioNota");
+const estadoAudioNota = document.getElementById("estadoAudioNota");
+const previewAudioNota = document.getElementById("previewAudioNota");
+const btnMesNotasPrev = document.getElementById("btnMesNotasPrev");
+const btnMesNotasNext = document.getElementById("btnMesNotasNext");
+const misNotasMesActual = document.getElementById("misNotasMesActual");
+const misNotasGrid = document.getElementById("misNotasGrid");
+const misNotasSeleccionInfo = document.getElementById("misNotasSeleccionInfo");
+const contenedorMisNotasDia = document.getElementById("contenedorMisNotasDia");
 
 // ============================
 // CONFIG
@@ -49,6 +69,7 @@ const STORAGE_EDICIONES_PLANTAS_KEY = "plantasEditadasCalendarioSiembra";
 const STORAGE_MIGRACION_HUERTO_KEY = "miHuertoMigradoASupabase";
 const STORAGE_MIGRACION_PLANTAS_KEY = "miPlantasMigradosASupabase";
 const STORAGE_ANOTACIONES_HUERTO_KEY = "miHuertoAnotacionesCalendarioSiembra";
+const STORAGE_MIS_NOTAS_KEY = "misNotasCalendarioSiembra";
 
 // Completá estos valores para activar persistencia en Supabase.
 const SUPABASE_URL = window.SUPABASE_URL || "";
@@ -62,6 +83,14 @@ let avisoNubeNoDisponibleMostrado = false;
 
 let plantaEnEdicionOrigen = null;
 let cacheHuerto = [];
+let cacheMisNotas = [];
+let fechaMisNotasSeleccionada = "";
+let mesMisNotasActual = new Date().getMonth();
+let anioMisNotasActual = new Date().getFullYear();
+let reconocimientoVozNotaActivo = null;
+let grabadoraAudioNota = null;
+let temporizadorAudioNota = null;
+let audioNotaTemporal = "";
 
 function debeUsarNubeHuerto() {
   return usaNubeHuerto && nubeHuertoDisponible;
@@ -2047,10 +2076,379 @@ async function manejarSubmitHuerto(e) {
 }
 
 // ============================
+// SECCIONES NAVEGABLES
+// ============================
+
+function obtenerDetalleSeccionPorId(idSeccion) {
+  const mapa = {
+    seccionCatalogo,
+    seccionHuerto,
+    seccionNotas
+  };
+  return mapa[idSeccion] || null;
+}
+
+function abrirSeccion(idSeccion) {
+  const destino = obtenerDetalleSeccionPorId(idSeccion);
+  if (!destino) return;
+
+  [seccionCatalogo, seccionHuerto, seccionNotas]
+    .filter(Boolean)
+    .forEach(seccion => {
+      seccion.open = seccion === destino;
+    });
+
+  destino.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ============================
+// MIS NOTAS
+// ============================
+
+function leerArchivosComoDataURL(archivos) {
+  return Promise.all(
+    Array.from(archivos || []).map(archivo => leerArchivoComoDataURL(archivo))
+  );
+}
+
+function normalizarMisNotas(lista) {
+  if (!Array.isArray(lista)) return [];
+
+  return lista
+    .map((nota, index) => {
+      const fecha = String(nota?.fecha || "").trim();
+      if (!fecha) return null;
+
+      return {
+        id: String(nota?.id || `nota-${index}`),
+        fecha,
+        texto: String(nota?.texto || "").trim(),
+        fotos: Array.isArray(nota?.fotos)
+          ? nota.fotos.map(f => obtenerRutaImagen(f)).filter(Boolean)
+          : [],
+        audio: String(nota?.audio || "").trim(),
+        creadoEn: String(nota?.creadoEn || "")
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b.creadoEn || "").localeCompare(String(a.creadoEn || "")));
+}
+
+function cargarMisNotas() {
+  const guardado = localStorage.getItem(STORAGE_MIS_NOTAS_KEY);
+  if (!guardado) return [];
+
+  try {
+    return normalizarMisNotas(JSON.parse(guardado));
+  } catch {
+    return [];
+  }
+}
+
+function guardarMisNotas(lista) {
+  guardarEnStorageSeguro(STORAGE_MIS_NOTAS_KEY, JSON.stringify(normalizarMisNotas(lista)), "las notas personales");
+}
+
+function obtenerNombreMesLargo(mes, anio) {
+  return new Date(anio, mes, 1).toLocaleDateString("es-UY", {
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function obtenerCantidadNotasPorFecha(fecha) {
+  return cacheMisNotas.filter(nota => nota.fecha === fecha).length;
+}
+
+function renderCalendarioMisNotas() {
+  if (!misNotasGrid || !misNotasMesActual) return;
+
+  const primerDia = new Date(anioMisNotasActual, mesMisNotasActual, 1);
+  const diasEnMes = new Date(anioMisNotasActual, mesMisNotasActual + 1, 0).getDate();
+  const offset = (primerDia.getDay() + 6) % 7;
+
+  misNotasMesActual.textContent = obtenerNombreMesLargo(mesMisNotasActual, anioMisNotasActual);
+
+  const etiquetasSemana = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+  const encabezadoHtml = etiquetasSemana
+    .map(etiqueta => `<div class="calendario-dia calendario-dia--encabezado">${etiqueta}</div>`)
+    .join("");
+
+  const celdasVacias = Array.from({ length: offset }, () => "<div class=\"calendario-dia calendario-dia--vacio\"></div>").join("");
+
+  const diasHtml = Array.from({ length: diasEnMes }, (_, i) => {
+    const dia = i + 1;
+    const fecha = new Date(anioMisNotasActual, mesMisNotasActual, dia).toISOString().split("T")[0];
+    const cantidad = obtenerCantidadNotasPorFecha(fecha);
+    const claseSeleccion = fecha === fechaMisNotasSeleccionada ? "calendario-dia--activo" : "";
+
+    return `
+      <button type="button" class="calendario-dia ${claseSeleccion}" onclick="seleccionarFechaMisNotas('${fecha}')">
+        <span>${dia}</span>
+        ${cantidad ? `<small>${cantidad}</small>` : ""}
+      </button>
+    `;
+  }).join("");
+
+  misNotasGrid.innerHTML = encabezadoHtml + celdasVacias + diasHtml;
+}
+
+function renderListadoMisNotasDelDia() {
+  if (!contenedorMisNotasDia || !misNotasSeleccionInfo) return;
+
+  const fecha = fechaMisNotasSeleccionada || fechaISOHoy();
+  const notasDia = cacheMisNotas.filter(nota => nota.fecha === fecha);
+  misNotasSeleccionInfo.innerHTML = `<strong>${formatearFecha(new Date(fecha + "T00:00:00"))}</strong> - ${notasDia.length} nota${notasDia.length === 1 ? "" : "s"}`;
+
+  if (!notasDia.length) {
+    contenedorMisNotasDia.innerHTML = "<p>No hay notas para esta fecha.</p>";
+    return;
+  }
+
+  contenedorMisNotasDia.innerHTML = notasDia
+    .map(nota => {
+      const fotosHtml = nota.fotos.length
+        ? `
+          <div class="nota-fotos">
+            ${nota.fotos.map(url => `<img src="${escaparHtml(url)}" alt="Foto de nota">`).join("")}
+          </div>
+        `
+        : "";
+
+      const audioHtml = nota.audio
+        ? `<audio controls src="${escaparHtml(nota.audio)}"></audio>`
+        : "";
+
+      const textoHtml = nota.texto
+        ? `<p>${escaparHtml(nota.texto)}</p>`
+        : "<p class=\"historial-vacio\">Nota sin texto.</p>";
+
+      return `
+        <article class="card nota-card">
+          <div class="card-body">
+            <h3>${formatearFecha(new Date(nota.fecha + "T00:00:00"))}</h3>
+            ${textoHtml}
+            ${fotosHtml}
+            ${audioHtml}
+            <div class="acciones">
+              <button type="button" class="btn-danger" onclick="eliminarNotaPersonal('${escaparTextoParaOnclick(nota.id)}')">Eliminar nota</button>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function refrescarMisNotas() {
+  cacheMisNotas = cargarMisNotas();
+  renderCalendarioMisNotas();
+  renderListadoMisNotasDelDia();
+}
+
+function reiniciarAudioTemporalMisNotas() {
+  audioNotaTemporal = "";
+  if (!previewAudioNota || !estadoAudioNota) return;
+
+  previewAudioNota.pause();
+  previewAudioNota.removeAttribute("src");
+  previewAudioNota.classList.add("hidden");
+  estadoAudioNota.textContent = "Sin audio grabado.";
+}
+
+async function alternarGrabacionAudioMisNotas() {
+  if (!btnGrabarAudioNota || !estadoAudioNota) return;
+
+  if (grabadoraAudioNota && grabadoraAudioNota.state === "recording") {
+    grabadoraAudioNota.stop();
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("Tu navegador no soporta grabación de audio.");
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const grabador = new MediaRecorder(stream);
+    const trozos = [];
+
+    grabador.ondataavailable = (evento) => {
+      if (evento.data && evento.data.size > 0) {
+        trozos.push(evento.data);
+      }
+    };
+
+    grabador.onstop = async () => {
+      if (temporizadorAudioNota) {
+        clearTimeout(temporizadorAudioNota);
+        temporizadorAudioNota = null;
+      }
+
+      stream.getTracks().forEach(track => track.stop());
+      btnGrabarAudioNota.textContent = "Grabar audio (max 1 min)";
+
+      if (!trozos.length) {
+        estadoAudioNota.textContent = "No se detectó audio.";
+        return;
+      }
+
+      const blob = new Blob(trozos, { type: "audio/webm" });
+      try {
+        audioNotaTemporal = await leerArchivoComoDataURL(new File([blob], "nota-audio.webm", { type: "audio/webm" }));
+        previewAudioNota.src = audioNotaTemporal;
+        previewAudioNota.classList.remove("hidden");
+        estadoAudioNota.textContent = "Audio grabado listo para guardar.";
+      } catch (error) {
+        estadoAudioNota.textContent = "No se pudo procesar el audio.";
+        alert(mensajeDesdeError(error));
+      }
+    };
+
+    grabador.start();
+    grabadoraAudioNota = grabador;
+    btnGrabarAudioNota.textContent = "Detener grabación";
+    estadoAudioNota.textContent = "Grabando... (max 60 segundos)";
+
+    temporizadorAudioNota = setTimeout(() => {
+      if (grabador.state === "recording") {
+        grabador.stop();
+      }
+    }, 60000);
+  } catch (error) {
+    alert(`No se pudo iniciar la grabación: ${mensajeDesdeError(error)}`);
+  }
+}
+
+function dictarTextoMisNotas() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert("Tu navegador no soporta dictado por voz.");
+    return;
+  }
+
+  if (reconocimientoVozNotaActivo) {
+    reconocimientoVozNotaActivo.stop();
+    return;
+  }
+
+  const reconocimiento = new SpeechRecognition();
+  reconocimiento.lang = "es-UY";
+  reconocimiento.interimResults = false;
+  reconocimiento.maxAlternatives = 1;
+
+  reconocimiento.onstart = () => {
+    reconocimientoVozNotaActivo = reconocimiento;
+    btnDictarNota.textContent = "Detener dictado";
+  };
+
+  reconocimiento.onresult = (evento) => {
+    const texto = String(evento.results?.[0]?.[0]?.transcript || "").trim();
+    if (!texto) return;
+
+    misNotasTexto.value = misNotasTexto.value
+      ? `${misNotasTexto.value}\n${texto}`
+      : texto;
+  };
+
+  reconocimiento.onend = () => {
+    reconocimientoVozNotaActivo = null;
+    btnDictarNota.textContent = "Dictar texto";
+  };
+
+  reconocimiento.onerror = () => {
+    reconocimientoVozNotaActivo = null;
+    btnDictarNota.textContent = "Dictar texto";
+  };
+
+  reconocimiento.start();
+}
+
+async function manejarSubmitMisNotas(evento) {
+  evento.preventDefault();
+
+  const fecha = String(misNotasFecha?.value || "").trim() || fechaISOHoy();
+  const texto = String(misNotasTexto?.value || "").trim();
+  const fotoUrlTexto = String(misNotasFotoUrl?.value || "").trim();
+  const fotoUrls = fotoUrlTexto
+    ? fotoUrlTexto.split(",").map(item => obtenerRutaImagen(item)).filter(Boolean)
+    : [];
+
+  let fotosArchivo = [];
+  if (misNotasFotosArchivo?.files?.length) {
+    try {
+      fotosArchivo = await leerArchivosComoDataURL(misNotasFotosArchivo.files);
+    } catch (error) {
+      alert(`No se pudieron leer las fotos: ${mensajeDesdeError(error)}`);
+      return;
+    }
+  }
+
+  const fotos = [...fotoUrls, ...fotosArchivo].filter(Boolean);
+  const audio = String(audioNotaTemporal || "").trim();
+
+  if (!texto && !fotos.length && !audio) {
+    alert("Agregá texto, fotos o audio para guardar la nota.");
+    return;
+  }
+
+  cacheMisNotas.unshift({
+    id: `nota-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fecha,
+    texto,
+    fotos,
+    audio,
+    creadoEn: new Date().toISOString()
+  });
+
+  try {
+    guardarMisNotas(cacheMisNotas);
+  } catch (error) {
+    alert(mensajeDesdeError(error, "No se pudo guardar la nota"));
+    return;
+  }
+
+  fechaMisNotasSeleccionada = fecha;
+  mesMisNotasActual = new Date(fecha + "T00:00:00").getMonth();
+  anioMisNotasActual = new Date(fecha + "T00:00:00").getFullYear();
+  formMisNotas.reset();
+  misNotasFecha.value = fechaISOHoy();
+  reiniciarAudioTemporalMisNotas();
+  refrescarMisNotas();
+}
+
+function seleccionarFechaMisNotas(fecha) {
+  fechaMisNotasSeleccionada = fecha;
+  renderCalendarioMisNotas();
+  renderListadoMisNotasDelDia();
+}
+
+function cambiarMesMisNotas(delta) {
+  const proximo = new Date(anioMisNotasActual, mesMisNotasActual + delta, 1);
+  mesMisNotasActual = proximo.getMonth();
+  anioMisNotasActual = proximo.getFullYear();
+  renderCalendarioMisNotas();
+}
+
+function eliminarNotaPersonal(idNota) {
+  const confirmar = window.confirm("¿Eliminar esta nota?");
+  if (!confirmar) return;
+
+  cacheMisNotas = cacheMisNotas.filter(nota => String(nota.id) !== String(idNota));
+  guardarMisNotas(cacheMisNotas);
+  refrescarMisNotas();
+}
+
+// ============================
 // INIT
 // ============================
 
 async function init() {
+  fechaMisNotasSeleccionada = fechaISOHoy();
+  misNotasFecha.value = fechaISOHoy();
+  refrescarMisNotas();
+
   inicializarMetadatosPlantasBase();
   await cargarYAplicarPlantasCustom();
   filtroMes.value = obtenerMesActual();
@@ -2079,12 +2477,23 @@ async function init() {
   btnInicioDesdeModal.addEventListener("click", () => volverAlInicio(true));
   btnInicioDesdeHuerto.addEventListener("click", () => volverAlInicio(false));
 
+  botonesIrSeccion.forEach(boton => {
+    boton.addEventListener("click", () => {
+      abrirSeccion(String(boton.dataset.irSeccion || ""));
+    });
+  });
+
   modal.addEventListener("click", (e) => {
     if (e.target === modal) cerrarVentanaModal();
   });
 
   formHuerto.addEventListener("submit", manejarSubmitHuerto);
   formPlanta.addEventListener("submit", manejarSubmitPlanta);
+  formMisNotas.addEventListener("submit", manejarSubmitMisNotas);
+  btnMesNotasPrev.addEventListener("click", () => cambiarMesMisNotas(-1));
+  btnMesNotasNext.addEventListener("click", () => cambiarMesMisNotas(1));
+  btnDictarNota.addEventListener("click", dictarTextoMisNotas);
+  btnGrabarAudioNota.addEventListener("click", alternarGrabacionAudioMisNotas);
   btnCancelarEdicionPlanta.addEventListener("click", limpiarModoEdicionPlanta);
   actualizarTextoFormularioPlanta();
   actualizarFormularioHuerto();
@@ -2101,6 +2510,8 @@ window.editarAccionCultivo = editarAccionCultivo;
 window.eliminarAccionCultivo = eliminarAccionCultivo;
 window.moverCarruselCultivo = moverCarruselCultivo;
 window.eliminarFotoExposicionCultivo = eliminarFotoExposicionCultivo;
+window.seleccionarFechaMisNotas = seleccionarFechaMisNotas;
+window.eliminarNotaPersonal = eliminarNotaPersonal;
 
 init().catch((error) => {
   console.error("Error al iniciar la app:", error);

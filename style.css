@@ -1045,6 +1045,136 @@ button:hover {
   right: 8px;
 }
 
+.secciones-nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.panel-seccion {
+  margin-bottom: 16px;
+}
+
+.panel-seccion > summary {
+  list-style: none;
+  cursor: pointer;
+  background: #eaf4e4;
+  border: 1px solid #d6e4d0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 700;
+  color: #2c4a2c;
+}
+
+.panel-seccion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel-seccion[open] > summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.panel-seccion > .panel {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.mis-notas-calendario {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dce7d8;
+  border-radius: 12px;
+  background: #f8fcf6;
+}
+
+.calendario-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.calendario-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendario-dia {
+  min-height: 46px;
+  border-radius: 10px;
+  border: 1px solid #d7e3d3;
+  background: #fff;
+  color: #2a3e2a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  font-size: 13px;
+}
+
+.calendario-dia small {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #3f703c;
+}
+
+.calendario-dia--encabezado {
+  min-height: 28px;
+  background: transparent;
+  border: 0;
+  font-weight: 700;
+  color: #4b634b;
+}
+
+.calendario-dia--vacio {
+  background: transparent;
+  border: 0;
+}
+
+.calendario-dia--activo {
+  border-color: #6d9969;
+  background: #eaf5e4;
+}
+
+.nota-card {
+  border-top: 5px solid #6d9969;
+}
+
+.nota-fotos {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.nota-fotos img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+@media (max-width: 700px) {
+  .calendario-dia {
+    min-height: 40px;
+    font-size: 12px;
+  }
+
+  .secciones-nav {
+    justify-content: stretch;
+  }
+
+  .secciones-nav button {
+    flex: 1 1 100%;
+  }
+}
+
 .cerrar {
   position: absolute;
   top: 12px;
