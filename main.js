@@ -53,6 +53,9 @@ const planoMapa = document.getElementById("planoMapa");
 const planoCoordenadas = document.getElementById("planoCoordenadas");
 const btnCentrarPlano = document.getElementById("btnCentrarPlano");
 const btnRestaurarPlano = document.getElementById("btnRestaurarPlano");
+const btnAjustarImagenPlano = document.getElementById("btnAjustarImagenPlano");
+const btnResetAjusteImagenPlano = document.getElementById("btnResetAjusteImagenPlano");
+const estadoImagenPlano = document.getElementById("estadoImagenPlano");
 const planoZonaNombre = document.getElementById("planoZonaNombre");
 const planoZonaTipo = document.getElementById("planoZonaTipo");
 const btnIniciarDibujoPlano = document.getElementById("btnIniciarDibujoPlano");
@@ -123,6 +126,9 @@ let marcadoresDibujoPlano = [];
 let capaDibujoPlano = null;
 let dibujoPlanoActivo = null;
 let indiceColorZona = 0;
+let ajustandoImagenPlano = false;
+let puntosAjusteImagen = [];
+let capaRectanguloAjusteImagen = null;
 
 const COLORES_ZONAS = ["#3b82f6", "#f97316", "#7c3aed", "#059669", "#dc2626", "#0891b2"];
 
@@ -139,6 +145,7 @@ const PLANO_BASE = {
   opacidadImagen: 0.65,
   notas: "",
   imagenUrl: "",
+  imagenBounds: null,
   zonasCustom: [],
   puntos: {
     A: [-34.76514658125373, -55.64712791388836],
@@ -324,6 +331,19 @@ function normalizarEstadoPlano(estado) {
     ? Math.min(1, Math.max(0.1, Number(estado.opacidadImagen)))
     : base.opacidadImagen;
 
+  let imagenBounds = null;
+  if (
+    Array.isArray(estado.imagenBounds)
+    && estado.imagenBounds.length === 2
+    && esCoordenadaValida(estado.imagenBounds[0])
+    && esCoordenadaValida(estado.imagenBounds[1])
+  ) {
+    imagenBounds = [
+      [Number(estado.imagenBounds[0][0]), Number(estado.imagenBounds[0][1])],
+      [Number(estado.imagenBounds[1][0]), Number(estado.imagenBounds[1][1])]
+    ];
+  }
+
   const zonasCustom = Array.isArray(estado.zonasCustom)
     ? estado.zonasCustom
       .map((zona, index) => normalizarZonaCustom(zona, index))
@@ -336,6 +356,7 @@ function normalizarEstadoPlano(estado) {
     opacidadImagen,
     notas: String(estado.notas || ""),
     imagenUrl: String(estado.imagenUrl || ""),
+    imagenBounds,
     zonasCustom,
     puntos
   };
@@ -591,14 +612,112 @@ function actualizarImagenPlanoEnMapa() {
 
   if (!estadoPlano?.imagenUrl) return;
 
-  const bounds = boundsDePlano();
+  const bounds = estadoPlano?.imagenBounds
+    ? window.L.latLngBounds(estadoPlano.imagenBounds)
+    : boundsDePlano();
+
   if (!bounds || !bounds.isValid()) return;
 
-  capaImagenPlano = window.L.imageOverlay(estadoPlano.imagenUrl, bounds.pad(0.22), {
+  const boundsFinal = estadoPlano?.imagenBounds ? bounds : bounds.pad(0.22);
+
+  capaImagenPlano = window.L.imageOverlay(estadoPlano.imagenUrl, boundsFinal, {
     opacity: estadoPlano.opacidadImagen || 0.65
   });
   capaImagenPlano.addTo(mapaPlano);
   capaImagenPlano.bringToBack();
+}
+
+function actualizarEstadoImagenPlano() {
+  if (!estadoImagenPlano || !estadoPlano) return;
+
+  if (ajustandoImagenPlano) {
+    estadoImagenPlano.textContent = `Ajuste activo: seleccioná dos esquinas sobre el mapa (${puntosAjusteImagen.length}/2).`;
+    return;
+  }
+
+  if (estadoPlano.imagenBounds) {
+    estadoImagenPlano.textContent = "Encuadre manual activo para la imagen aérea.";
+    return;
+  }
+
+  estadoImagenPlano.textContent = "Encuadre automático por defecto.";
+}
+
+function limpiarRectanguloAjusteImagen() {
+  if (!mapaPlano || !capaRectanguloAjusteImagen) return;
+  mapaPlano.removeLayer(capaRectanguloAjusteImagen);
+  capaRectanguloAjusteImagen = null;
+}
+
+function boundsDesdeDosPuntos(p1, p2) {
+  const latMin = Math.min(p1.lat, p2.lat);
+  const latMax = Math.max(p1.lat, p2.lat);
+  const lngMin = Math.min(p1.lng, p2.lng);
+  const lngMax = Math.max(p1.lng, p2.lng);
+  return [[latMin, lngMin], [latMax, lngMax]];
+}
+
+function alternarAjusteImagenPlano() {
+  if (!estadoPlano || !mapaPlano) return;
+
+  if (!estadoPlano.imagenUrl) {
+    alert("Primero cargá o pegá una imagen aérea y guardá el plano.");
+    return;
+  }
+
+  ajustandoImagenPlano = !ajustandoImagenPlano;
+  puntosAjusteImagen = [];
+  limpiarRectanguloAjusteImagen();
+  if (btnAjustarImagenPlano) {
+    btnAjustarImagenPlano.textContent = ajustandoImagenPlano
+      ? "Cancelar ajuste superposición"
+      : "Ajustar superposición (2 clics)";
+  }
+  actualizarEstadoImagenPlano();
+}
+
+function resetAjusteImagenPlano() {
+  if (!estadoPlano) return;
+
+  estadoPlano.imagenBounds = null;
+  guardarPlanoLocal(estadoPlano);
+  actualizarImagenPlanoEnMapa();
+  actualizarEstadoImagenPlano();
+}
+
+function capturarClickAjusteImagenPlano(latlng) {
+  if (!ajustandoImagenPlano || !estadoPlano || !mapaPlano) return false;
+
+  puntosAjusteImagen.push(latlng);
+  if (puntosAjusteImagen.length === 1) {
+    limpiarRectanguloAjusteImagen();
+    capaRectanguloAjusteImagen = window.L.rectangle(window.L.latLngBounds(latlng, latlng), {
+      color: "#f59e0b",
+      weight: 2,
+      dashArray: "6 4",
+      fillOpacity: 0.05
+    }).addTo(mapaPlano);
+    actualizarEstadoImagenPlano();
+    return true;
+  }
+
+  const bounds = boundsDesdeDosPuntos(puntosAjusteImagen[0], puntosAjusteImagen[1]);
+  estadoPlano.imagenBounds = bounds;
+  guardarPlanoLocal(estadoPlano);
+
+  if (capaRectanguloAjusteImagen) {
+    capaRectanguloAjusteImagen.setBounds(window.L.latLngBounds(bounds));
+  }
+
+  ajustandoImagenPlano = false;
+  puntosAjusteImagen = [];
+  if (btnAjustarImagenPlano) {
+    btnAjustarImagenPlano.textContent = "Ajustar superposición (2 clics)";
+  }
+  limpiarRectanguloAjusteImagen();
+  actualizarImagenPlanoEnMapa();
+  actualizarEstadoImagenPlano();
+  return true;
 }
 
 function colorSiguienteZona() {
@@ -913,6 +1032,7 @@ function restaurarPlanoBase() {
   guardarPlanoLocal(estadoPlano);
   actualizarCapasPlano();
   centrarPlanoEnVista();
+  actualizarEstadoImagenPlano();
 }
 
 function inicializarPlanoSolar() {
@@ -953,6 +1073,7 @@ function inicializarPlanoSolar() {
   });
 
   mapaPlano.on("click", (evento) => {
+    if (capturarClickAjusteImagenPlano(evento.latlng)) return;
     if (!dibujoPlanoActivo) return;
     agregarPuntoDibujoPlano(evento.latlng);
   });
@@ -981,6 +1102,14 @@ function inicializarPlanoSolar() {
     btnRestaurarPlano.addEventListener("click", restaurarPlanoBase);
   }
 
+  if (btnAjustarImagenPlano) {
+    btnAjustarImagenPlano.addEventListener("click", alternarAjusteImagenPlano);
+  }
+
+  if (btnResetAjusteImagenPlano) {
+    btnResetAjusteImagenPlano.addEventListener("click", resetAjusteImagenPlano);
+  }
+
   if (btnIniciarDibujoPlano) {
     btnIniciarDibujoPlano.addEventListener("click", iniciarDibujoPlano);
   }
@@ -1004,6 +1133,7 @@ function inicializarPlanoSolar() {
   }
 
   actualizarControlesDibujoPlano();
+  actualizarEstadoImagenPlano();
 }
 
 function obtenerEstadoPronostico(fechaObjetivo) {

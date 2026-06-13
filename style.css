@@ -1193,6 +1193,11 @@ button:hover {
   gap: 8px;
 }
 
+#estadoImagenPlano {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+}
+
 .plano-ayuda {
   margin-top: 0;
 }
