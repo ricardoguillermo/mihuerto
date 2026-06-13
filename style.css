@@ -1198,6 +1198,32 @@ button:hover {
   margin-top: -4px;
 }
 
+.preview-imagen-plano {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #d6e4d0;
+  background: #f7fbf4;
+}
+
+.preview-imagen-plano img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2ebdd;
+}
+
+.preview-imagen-plano p {
+  margin: 0;
+  color: #355235;
+  font-size: 14px;
+}
+
 .plano-ayuda {
   margin-top: 0;
 }

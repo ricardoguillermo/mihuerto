@@ -56,6 +56,9 @@ const btnRestaurarPlano = document.getElementById("btnRestaurarPlano");
 const btnAjustarImagenPlano = document.getElementById("btnAjustarImagenPlano");
 const btnResetAjusteImagenPlano = document.getElementById("btnResetAjusteImagenPlano");
 const estadoImagenPlano = document.getElementById("estadoImagenPlano");
+const previewImagenPlano = document.getElementById("previewImagenPlano");
+const previewImagenPlanoImg = document.getElementById("previewImagenPlanoImg");
+const previewImagenPlanoTexto = document.getElementById("previewImagenPlanoTexto");
 const planoZonaNombre = document.getElementById("planoZonaNombre");
 const planoZonaTipo = document.getElementById("planoZonaTipo");
 const btnIniciarDibujoPlano = document.getElementById("btnIniciarDibujoPlano");
@@ -129,6 +132,7 @@ let indiceColorZona = 0;
 let ajustandoImagenPlano = false;
 let puntosAjusteImagen = [];
 let capaRectanguloAjusteImagen = null;
+let previewImagenPlanoObjectUrl = "";
 
 const COLORES_ZONAS = ["#3b82f6", "#f97316", "#7c3aed", "#059669", "#dc2626", "#0891b2"];
 
@@ -639,7 +643,32 @@ function actualizarEstadoImagenPlano() {
     return;
   }
 
-  estadoImagenPlano.textContent = "Encuadre automático por defecto.";
+  estadoImagenPlano.textContent = estadoPlano.imagenUrl
+    ? "Imagen cargada con encuadre automático por defecto."
+    : "Encuadre automático por defecto.";
+}
+
+function limpiarVistaPreviaImagenPlano() {
+  if (previewImagenPlanoObjectUrl) {
+    URL.revokeObjectURL(previewImagenPlanoObjectUrl);
+    previewImagenPlanoObjectUrl = "";
+  }
+}
+
+function mostrarVistaPreviaImagenPlano(url, texto) {
+  if (!previewImagenPlano || !previewImagenPlanoImg || !previewImagenPlanoTexto) return;
+
+  if (!url) {
+    previewImagenPlano.classList.add("hidden");
+    previewImagenPlanoImg.removeAttribute("src");
+    previewImagenPlanoTexto.textContent = "Sin imagen seleccionada.";
+    limpiarVistaPreviaImagenPlano();
+    return;
+  }
+
+  previewImagenPlano.classList.remove("hidden");
+  previewImagenPlanoImg.src = url;
+  previewImagenPlanoTexto.textContent = texto || "Vista previa lista.";
 }
 
 function limpiarRectanguloAjusteImagen() {
@@ -1009,12 +1038,32 @@ async function manejarSubmitPlano(evento) {
   estadoPlano.imagenUrl = imagenFinal || estadoPlano.imagenUrl || "";
 
   guardarPlanoLocal(estadoPlano);
+  mostrarVistaPreviaImagenPlano(
+    estadoPlano.imagenUrl,
+    estadoPlano.imagenUrl.startsWith("data:") ? "Imagen cargada desde archivo local." : "Imagen cargada desde URL."
+  );
   actualizarImagenPlanoEnMapa();
   renderResumenPlano();
 
   if (planoArchivo) {
     planoArchivo.value = "";
   }
+}
+
+async function manejarCambioArchivoPlano(evento) {
+  const archivo = evento.target.files && evento.target.files[0];
+
+  if (!archivo) {
+    mostrarVistaPreviaImagenPlano(
+      estadoPlano?.imagenUrl || "",
+      estadoPlano?.imagenUrl ? "Imagen guardada en el plano." : "Sin imagen seleccionada."
+    );
+    return;
+  }
+
+  limpiarVistaPreviaImagenPlano();
+  previewImagenPlanoObjectUrl = URL.createObjectURL(archivo);
+  mostrarVistaPreviaImagenPlano(previewImagenPlanoObjectUrl, `Archivo listo para guardar: ${archivo.name}`);
 }
 
 function restaurarPlanoBase() {
@@ -1049,6 +1098,10 @@ function inicializarPlanoSolar() {
   if (planoNotas) planoNotas.value = estadoPlano.notas;
   if (planoOpacidad) planoOpacidad.value = String(estadoPlano.opacidadImagen || 0.65);
   if (planoZonaTipo) planoZonaTipo.value = "poligono";
+  mostrarVistaPreviaImagenPlano(
+    estadoPlano.imagenUrl,
+    estadoPlano.imagenUrl ? "Imagen guardada en el plano." : "Sin imagen seleccionada."
+  );
 
   mapaPlano = window.L.map(planoMapa, {
     zoomControl: true,
@@ -1091,6 +1144,10 @@ function inicializarPlanoSolar() {
       actualizarImagenPlanoEnMapa();
       renderResumenPlano();
     });
+  }
+
+  if (planoArchivo) {
+    planoArchivo.addEventListener("change", manejarCambioArchivoPlano);
   }
 
   if (btnCentrarPlano) {
