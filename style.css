@@ -1167,6 +1167,32 @@ button:hover {
   gap: 10px;
 }
 
+.acciones-form-plano--dibujo button {
+  flex: 1 1 180px;
+}
+
+.acciones-form-plano button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.plano-metricas {
+  margin-top: 10px;
+  border-top: 1px dashed #cfddca;
+  padding-top: 10px;
+}
+
+.plano-metricas p {
+  margin: 6px 0;
+}
+
+.plano-zonas-acciones {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .plano-ayuda {
   margin-top: 0;
 }

@@ -231,6 +231,27 @@
             <button id="btnCentrarPlano" type="button" class="btn-secundario">Centrar vista</button>
             <button id="btnRestaurarPlano" type="button" class="btn-secundario">Restaurar puntos base</button>
           </div>
+
+          <label>
+            Nombre de nueva zona
+            <input type="text" id="planoZonaNombre" placeholder="Ej: Huerta sur" />
+          </label>
+
+          <label>
+            Tipo de dibujo
+            <select id="planoZonaTipo">
+              <option value="poligono">Polígono</option>
+              <option value="polilinea">Polilínea</option>
+            </select>
+          </label>
+
+          <div class="acciones-form-plano acciones-form-plano--dibujo">
+            <button id="btnIniciarDibujoPlano" type="button" class="btn-secundario">Iniciar dibujo</button>
+            <button id="btnFinalizarDibujoPlano" type="button" class="btn-secundario" disabled>Finalizar zona</button>
+            <button id="btnCancelarDibujoPlano" type="button" class="btn-secundario" disabled>Cancelar dibujo</button>
+          </div>
+
+          <p id="estadoDibujoPlano" class="historial-vacio">Sin dibujo activo.</p>
         </form>
 
         <p class="resumen plano-ayuda">

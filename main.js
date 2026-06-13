@@ -53,6 +53,12 @@ const planoMapa = document.getElementById("planoMapa");
 const planoCoordenadas = document.getElementById("planoCoordenadas");
 const btnCentrarPlano = document.getElementById("btnCentrarPlano");
 const btnRestaurarPlano = document.getElementById("btnRestaurarPlano");
+const planoZonaNombre = document.getElementById("planoZonaNombre");
+const planoZonaTipo = document.getElementById("planoZonaTipo");
+const btnIniciarDibujoPlano = document.getElementById("btnIniciarDibujoPlano");
+const btnFinalizarDibujoPlano = document.getElementById("btnFinalizarDibujoPlano");
+const btnCancelarDibujoPlano = document.getElementById("btnCancelarDibujoPlano");
+const estadoDibujoPlano = document.getElementById("estadoDibujoPlano");
 const contenedorPlano = document.getElementById("contenedorPlano");
 
 const formMisNotas = document.getElementById("formMisNotas");
@@ -112,6 +118,13 @@ let capaPergola = null;
 let capaCasaAnibal = null;
 let capaImagenPlano = null;
 let marcadoresPlano = {};
+let capasZonasCustom = [];
+let marcadoresDibujoPlano = [];
+let capaDibujoPlano = null;
+let dibujoPlanoActivo = null;
+let indiceColorZona = 0;
+
+const COLORES_ZONAS = ["#3b82f6", "#f97316", "#7c3aed", "#059669", "#dc2626", "#0891b2"];
 
 const PUNTOS_POR_ESTRUCTURA = {
   limiteSolar: ["A", "B", "C", "D"],
@@ -126,6 +139,7 @@ const PLANO_BASE = {
   opacidadImagen: 0.65,
   notas: "",
   imagenUrl: "",
+  zonasCustom: [],
   puntos: {
     A: [-34.76514658125373, -55.64712791388836],
     B: [-34.76512606819545, -55.64695278409277],
@@ -310,12 +324,44 @@ function normalizarEstadoPlano(estado) {
     ? Math.min(1, Math.max(0.1, Number(estado.opacidadImagen)))
     : base.opacidadImagen;
 
+  const zonasCustom = Array.isArray(estado.zonasCustom)
+    ? estado.zonasCustom
+      .map((zona, index) => normalizarZonaCustom(zona, index))
+      .filter(Boolean)
+    : [];
+
   return {
     centro: centroValido,
     zoom,
     opacidadImagen,
     notas: String(estado.notas || ""),
     imagenUrl: String(estado.imagenUrl || ""),
+    zonasCustom,
+    puntos
+  };
+}
+
+function normalizarZonaCustom(zona, index = 0) {
+  if (!zona || typeof zona !== "object") return null;
+
+  const tipo = String(zona.tipo || "poligono").toLowerCase() === "polilinea"
+    ? "polilinea"
+    : "poligono";
+
+  const puntos = Array.isArray(zona.puntos)
+    ? zona.puntos
+      .filter(esCoordenadaValida)
+      .map(([lat, lng]) => [Number(lat), Number(lng)])
+    : [];
+
+  const minPuntos = tipo === "polilinea" ? 2 : 3;
+  if (puntos.length < minPuntos) return null;
+
+  return {
+    id: String(zona.id || `zona-${Date.now()}-${index}`),
+    nombre: String(zona.nombre || `Zona ${index + 1}`),
+    tipo,
+    color: String(zona.color || COLORES_ZONAS[index % COLORES_ZONAS.length]),
     puntos
   };
 }
@@ -333,6 +379,101 @@ function cargarPlanoLocal() {
 
 function guardarPlanoLocal(estado) {
   guardarEnStorageSeguro(STORAGE_PLANO_KEY, JSON.stringify(estado), "el plano del solar");
+}
+
+function aLatLng(punto) {
+  return window.L.latLng(Number(punto[0]), Number(punto[1]));
+}
+
+function calcularDistanciaMetros(puntos, cerrar = false) {
+  const latLngs = (puntos || []).filter(esCoordenadaValida).map(aLatLng);
+  if (latLngs.length < 2) return 0;
+
+  let distancia = 0;
+  for (let i = 1; i < latLngs.length; i += 1) {
+    distancia += latLngs[i - 1].distanceTo(latLngs[i]);
+  }
+
+  if (cerrar) {
+    distancia += latLngs[latLngs.length - 1].distanceTo(latLngs[0]);
+  }
+
+  return distancia;
+}
+
+function calcularAreaM2(puntos) {
+  if (!mapaPlano || !Array.isArray(puntos) || puntos.length < 3) return 0;
+
+  const proyectados = puntos
+    .filter(esCoordenadaValida)
+    .map((coord) => mapaPlano.options.crs.project(aLatLng(coord)));
+
+  if (proyectados.length < 3) return 0;
+
+  let suma = 0;
+  for (let i = 0; i < proyectados.length; i += 1) {
+    const actual = proyectados[i];
+    const siguiente = proyectados[(i + 1) % proyectados.length];
+    suma += (actual.x * siguiente.y) - (siguiente.x * actual.y);
+  }
+
+  return Math.abs(suma / 2);
+}
+
+function formatearMetros(valor) {
+  if (valor >= 1000) return `${(valor / 1000).toFixed(2)} km`;
+  return `${valor.toFixed(1)} m`;
+}
+
+function formatearArea(valor) {
+  if (valor >= 1000000) return `${(valor / 1000000).toFixed(3)} km²`;
+  if (valor >= 10000) return `${(valor / 10000).toFixed(2)} ha`;
+  return `${valor.toFixed(1)} m²`;
+}
+
+function obtenerMetricasPlano() {
+  if (!estadoPlano) return [];
+
+  const metricasBase = [
+    {
+      etiqueta: "Límite del solar",
+      tipo: "polilinea",
+      puntos: PUNTOS_POR_ESTRUCTURA.limiteSolar.map((nombre) => estadoPlano.puntos[nombre]).filter(esCoordenadaValida)
+    },
+    {
+      etiqueta: "Casa principal",
+      tipo: "poligono",
+      puntos: PUNTOS_POR_ESTRUCTURA.casaPrincipal.map((nombre) => estadoPlano.puntos[nombre]).filter(esCoordenadaValida)
+    },
+    {
+      etiqueta: "Pérgola",
+      tipo: "poligono",
+      puntos: PUNTOS_POR_ESTRUCTURA.pergola.map((nombre) => estadoPlano.puntos[nombre]).filter(esCoordenadaValida)
+    },
+    {
+      etiqueta: "Casa de Aníbal",
+      tipo: "poligono",
+      puntos: PUNTOS_POR_ESTRUCTURA.casaAnibal.map((nombre) => estadoPlano.puntos[nombre]).filter(esCoordenadaValida)
+    }
+  ];
+
+  const metricasCustom = (estadoPlano.zonasCustom || []).map((zona) => ({
+    etiqueta: zona.nombre,
+    tipo: zona.tipo,
+    idZona: zona.id,
+    puntos: zona.puntos
+  }));
+
+  return [...metricasBase, ...metricasCustom].map((item) => {
+    const esPoligono = item.tipo === "poligono";
+    const perimetro = calcularDistanciaMetros(item.puntos, esPoligono);
+    const area = esPoligono ? calcularAreaM2(item.puntos) : 0;
+    return {
+      ...item,
+      perimetro,
+      area
+    };
+  });
 }
 
 function tipoPuntoPlano(nombrePunto) {
@@ -379,10 +520,21 @@ function renderCoordenadasPlano() {
     ...PUNTOS_POR_ESTRUCTURA.pergola.map(formatear),
     "",
     "Casa de Anibal (poligono)",
-    ...PUNTOS_POR_ESTRUCTURA.casaAnibal.map(formatear)
+    ...PUNTOS_POR_ESTRUCTURA.casaAnibal.map(formatear),
+    "",
+    "Zonas personalizadas"
   ].join("\n");
 
-  planoCoordenadas.textContent = texto;
+  const zonasTexto = (estadoPlano.zonasCustom || []).flatMap((zona) => {
+    const cabecera = `- ${zona.nombre} (${zona.tipo})`;
+    const puntos = zona.puntos.map((coord, index) => {
+      const prefijo = zona.tipo === "polilinea" ? "L" : "Z";
+      return `  ${prefijo}${index + 1}: ${Number(coord[0]).toFixed(12)}, ${Number(coord[1]).toFixed(12)}`;
+    });
+    return [cabecera, ...puntos];
+  });
+
+  planoCoordenadas.textContent = zonasTexto.length ? `${texto}\n${zonasTexto.join("\n")}` : `${texto}\n- Sin zonas aún.`;
 }
 
 function renderResumenPlano() {
@@ -396,14 +548,34 @@ function renderResumenPlano() {
     ? `<img src="${estadoPlano.imagenUrl}" alt="Plano de referencia">`
     : "<div class=\"card-placeholder\">Sin imagen aérea cargada</div>";
 
+  const metricas = obtenerMetricasPlano();
+  const metricasHtml = metricas
+    .map((item) => {
+      const areaTexto = item.tipo === "poligono" ? ` | Área: ${formatearArea(item.area)}` : "";
+      const botonEliminar = item.idZona
+        ? `<button type="button" class="btn-mini btn-danger" onclick="eliminarZonaPlano('${escaparTextoParaOnclick(item.idZona)}')">Eliminar</button>`
+        : "";
+
+      return `
+        <div class="plano-metricas">
+          <p><strong>${escaparHtml(item.etiqueta)}</strong></p>
+          <p>Perímetro: ${formatearMetros(item.perimetro)}${areaTexto}</p>
+          ${botonEliminar ? `<div class="plano-zonas-acciones">${botonEliminar}</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
   contenedorPlano.innerHTML = `
     <article class="card nota-card">
       ${imagen}
       <div class="card-body">
         <h3>Plano del solar</h3>
         <p><strong>Puntos:</strong> ${Object.keys(estadoPlano.puntos).length}</p>
+        <p><strong>Zonas personalizadas:</strong> ${(estadoPlano.zonasCustom || []).length}</p>
         <p><strong>Opacidad imagen:</strong> ${Math.round((estadoPlano.opacidadImagen || 0.65) * 100)}%</p>
         <p><strong>Notas:</strong> ${nota}</p>
+        ${metricasHtml}
       </div>
     </article>
   `;
@@ -427,6 +599,190 @@ function actualizarImagenPlanoEnMapa() {
   });
   capaImagenPlano.addTo(mapaPlano);
   capaImagenPlano.bringToBack();
+}
+
+function colorSiguienteZona() {
+  const color = COLORES_ZONAS[indiceColorZona % COLORES_ZONAS.length];
+  indiceColorZona += 1;
+  return color;
+}
+
+function limpiarDibujoTemporal() {
+  if (!mapaPlano) return;
+
+  if (capaDibujoPlano) {
+    mapaPlano.removeLayer(capaDibujoPlano);
+    capaDibujoPlano = null;
+  }
+
+  marcadoresDibujoPlano.forEach((marker) => mapaPlano.removeLayer(marker));
+  marcadoresDibujoPlano = [];
+}
+
+function renderEstadoDibujoPlano() {
+  if (!estadoDibujoPlano) return;
+
+  if (!dibujoPlanoActivo) {
+    estadoDibujoPlano.textContent = "Sin dibujo activo.";
+    return;
+  }
+
+  const tipoTexto = dibujoPlanoActivo.tipo === "poligono" ? "polígono" : "polilínea";
+  estadoDibujoPlano.textContent = `Dibujo activo (${tipoTexto}): ${dibujoPlanoActivo.nombre}. Puntos: ${dibujoPlanoActivo.puntos.length}. Hacé clic en el mapa para agregar vértices.`;
+}
+
+function actualizarControlesDibujoPlano() {
+  const activo = Boolean(dibujoPlanoActivo);
+  if (btnIniciarDibujoPlano) btnIniciarDibujoPlano.disabled = activo;
+  if (btnFinalizarDibujoPlano) btnFinalizarDibujoPlano.disabled = !activo;
+  if (btnCancelarDibujoPlano) btnCancelarDibujoPlano.disabled = !activo;
+  renderEstadoDibujoPlano();
+}
+
+function redibujarDibujoTemporal() {
+  if (!mapaPlano || !dibujoPlanoActivo) return;
+
+  limpiarDibujoTemporal();
+  const latLngs = dibujoPlanoActivo.puntos.map((coord) => aLatLng(coord));
+  if (!latLngs.length) return;
+
+  if (dibujoPlanoActivo.tipo === "poligono" && latLngs.length >= 3) {
+    capaDibujoPlano = window.L.polygon(latLngs, {
+      color: dibujoPlanoActivo.color,
+      weight: 3,
+      fillColor: dibujoPlanoActivo.color,
+      fillOpacity: 0.2,
+      dashArray: "6 5"
+    }).addTo(mapaPlano);
+  } else {
+    capaDibujoPlano = window.L.polyline(latLngs, {
+      color: dibujoPlanoActivo.color,
+      weight: 3,
+      dashArray: "6 5"
+    }).addTo(mapaPlano);
+  }
+
+  marcadoresDibujoPlano = latLngs.map((latLng, index) => {
+    const marker = window.L.circleMarker(latLng, {
+      radius: 5,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: dibujoPlanoActivo.color,
+      fillOpacity: 0.95
+    }).addTo(mapaPlano);
+
+    marker.bindTooltip(`P${index + 1}`, {
+      permanent: true,
+      direction: "right",
+      offset: [6, 0],
+      className: "punto-etiqueta"
+    });
+
+    return marker;
+  });
+}
+
+function cancelarDibujoPlano() {
+  dibujoPlanoActivo = null;
+  limpiarDibujoTemporal();
+  actualizarControlesDibujoPlano();
+}
+
+function iniciarDibujoPlano() {
+  if (!mapaPlano || dibujoPlanoActivo) return;
+
+  const nombreBase = String(planoZonaNombre?.value || "").trim();
+  const nombre = nombreBase || `Zona ${((estadoPlano?.zonasCustom || []).length + 1)}`;
+  const tipo = String(planoZonaTipo?.value || "poligono") === "polilinea" ? "polilinea" : "poligono";
+
+  dibujoPlanoActivo = {
+    id: `zona-${Date.now()}`,
+    nombre,
+    tipo,
+    color: colorSiguienteZona(),
+    puntos: []
+  };
+
+  actualizarControlesDibujoPlano();
+}
+
+function agregarPuntoDibujoPlano(latlng) {
+  if (!dibujoPlanoActivo) return;
+
+  dibujoPlanoActivo.puntos.push([latlng.lat, latlng.lng]);
+  redibujarDibujoTemporal();
+  renderEstadoDibujoPlano();
+}
+
+function finalizarDibujoPlano() {
+  if (!dibujoPlanoActivo || !estadoPlano) return;
+
+  const minPuntos = dibujoPlanoActivo.tipo === "polilinea" ? 2 : 3;
+  if (dibujoPlanoActivo.puntos.length < minPuntos) {
+    alert(`La zona necesita al menos ${minPuntos} puntos.`);
+    return;
+  }
+
+  estadoPlano.zonasCustom = estadoPlano.zonasCustom || [];
+  estadoPlano.zonasCustom.push({
+    id: dibujoPlanoActivo.id,
+    nombre: dibujoPlanoActivo.nombre,
+    tipo: dibujoPlanoActivo.tipo,
+    color: dibujoPlanoActivo.color,
+    puntos: dibujoPlanoActivo.puntos.map((coord) => [Number(coord[0]), Number(coord[1])])
+  });
+
+  guardarPlanoLocal(estadoPlano);
+  cancelarDibujoPlano();
+  actualizarCapasPlano();
+}
+
+function renderZonasCustomEnMapa() {
+  if (!mapaPlano || !estadoPlano) return;
+
+  capasZonasCustom.forEach((layer) => mapaPlano.removeLayer(layer));
+  capasZonasCustom = [];
+
+  (estadoPlano.zonasCustom || []).forEach((zona) => {
+    const latLngs = zona.puntos.filter(esCoordenadaValida).map((coord) => aLatLng(coord));
+    if (latLngs.length < (zona.tipo === "polilinea" ? 2 : 3)) return;
+
+    const opciones = {
+      color: zona.color,
+      weight: 3,
+      fillColor: zona.color,
+      fillOpacity: zona.tipo === "poligono" ? 0.18 : 0,
+      dashArray: zona.tipo === "polilinea" ? "8 4" : ""
+    };
+
+    const layer = zona.tipo === "polilinea"
+      ? window.L.polyline(latLngs, opciones)
+      : window.L.polygon(latLngs, opciones);
+
+    const medida = zona.tipo === "polilinea"
+      ? `Longitud: ${formatearMetros(calcularDistanciaMetros(zona.puntos, false))}`
+      : `Perímetro: ${formatearMetros(calcularDistanciaMetros(zona.puntos, true))} | Área: ${formatearArea(calcularAreaM2(zona.puntos))}`;
+
+    layer.bindTooltip(`${escaparHtml(zona.nombre)}\n${medida}`, {
+      sticky: true,
+      className: "punto-etiqueta"
+    });
+
+    layer.addTo(mapaPlano);
+    capasZonasCustom.push(layer);
+  });
+}
+
+function eliminarZonaPlano(idZona) {
+  if (!estadoPlano) return;
+
+  const confirmar = window.confirm("¿Eliminar esta zona personalizada?");
+  if (!confirmar) return;
+
+  estadoPlano.zonasCustom = (estadoPlano.zonasCustom || [])
+    .filter((zona) => String(zona.id) !== String(idZona));
+  guardarPlanoLocal(estadoPlano);
+  actualizarCapasPlano();
 }
 
 function actualizarCapasPlano() {
@@ -500,9 +856,11 @@ function actualizarCapasPlano() {
     marcadoresPlano[nombre] = marcador;
   });
 
+  renderZonasCustomEnMapa();
   actualizarImagenPlanoEnMapa();
   renderCoordenadasPlano();
   renderResumenPlano();
+  actualizarControlesDibujoPlano();
 }
 
 function centrarPlanoEnVista() {
@@ -545,10 +903,13 @@ function restaurarPlanoBase() {
   const confirmar = window.confirm("Se restauraran los puntos base del plano. ¿Continuar?");
   if (!confirmar) return;
 
+  cancelarDibujoPlano();
   estadoPlano = clonarPlanoBase();
   if (planoUrl) planoUrl.value = estadoPlano.imagenUrl;
   if (planoNotas) planoNotas.value = estadoPlano.notas;
   if (planoOpacidad) planoOpacidad.value = String(estadoPlano.opacidadImagen);
+  if (planoZonaNombre) planoZonaNombre.value = "";
+  if (planoZonaTipo) planoZonaTipo.value = "poligono";
   guardarPlanoLocal(estadoPlano);
   actualizarCapasPlano();
   centrarPlanoEnVista();
@@ -568,6 +929,7 @@ function inicializarPlanoSolar() {
   if (planoUrl) planoUrl.value = estadoPlano.imagenUrl;
   if (planoNotas) planoNotas.value = estadoPlano.notas;
   if (planoOpacidad) planoOpacidad.value = String(estadoPlano.opacidadImagen || 0.65);
+  if (planoZonaTipo) planoZonaTipo.value = "poligono";
 
   mapaPlano = window.L.map(planoMapa, {
     zoomControl: true,
@@ -588,6 +950,11 @@ function inicializarPlanoSolar() {
     estadoPlano.centro = [centro.lat, centro.lng];
     estadoPlano.zoom = mapaPlano.getZoom();
     guardarPlanoLocal(estadoPlano);
+  });
+
+  mapaPlano.on("click", (evento) => {
+    if (!dibujoPlanoActivo) return;
+    agregarPuntoDibujoPlano(evento.latlng);
   });
 
   formPlano.addEventListener("submit", (e) => {
@@ -614,6 +981,18 @@ function inicializarPlanoSolar() {
     btnRestaurarPlano.addEventListener("click", restaurarPlanoBase);
   }
 
+  if (btnIniciarDibujoPlano) {
+    btnIniciarDibujoPlano.addEventListener("click", iniciarDibujoPlano);
+  }
+
+  if (btnFinalizarDibujoPlano) {
+    btnFinalizarDibujoPlano.addEventListener("click", finalizarDibujoPlano);
+  }
+
+  if (btnCancelarDibujoPlano) {
+    btnCancelarDibujoPlano.addEventListener("click", cancelarDibujoPlano);
+  }
+
   if (seccionPlano) {
     seccionPlano.addEventListener("toggle", () => {
       if (!seccionPlano.open || !mapaPlano) return;
@@ -623,6 +1002,8 @@ function inicializarPlanoSolar() {
       }, 120);
     });
   }
+
+  actualizarControlesDibujoPlano();
 }
 
 function obtenerEstadoPronostico(fechaObjetivo) {
@@ -2925,6 +3306,7 @@ window.moverCarruselCultivo = moverCarruselCultivo;
 window.eliminarFotoExposicionCultivo = eliminarFotoExposicionCultivo;
 window.seleccionarFechaMisNotas = seleccionarFechaMisNotas;
 window.eliminarNotaPersonal = eliminarNotaPersonal;
+window.eliminarZonaPlano = eliminarZonaPlano;
 
 init().catch((error) => {
   console.error("Error al iniciar la app:", error);
