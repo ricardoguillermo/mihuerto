@@ -624,7 +624,6 @@ function actualizarImagenPlanoEnMapa() {
     opacity: estadoPlano.opacidadImagen || 0.65
   });
   capaImagenPlano.addTo(mapaPlano);
-  capaImagenPlano.bringToBack();
 }
 
 function actualizarEstadoImagenPlano() {
