@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CalendarioSiembra</title>
   <link rel="stylesheet" href="style.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
 </head>
 <body>
   <header class="header">
@@ -18,6 +24,7 @@
       <button type="button" class="btn-secundario" data-ir-seccion="seccionCatalogo">Catálogo</button>
       <button type="button" class="btn-secundario" data-ir-seccion="seccionHuerto">Mi huerto</button>
       <button type="button" class="btn-secundario" data-ir-seccion="seccionNotas">Mis notas</button>
+      <button type="button" class="btn-secundario" data-ir-seccion="seccionPlano">Plano</button>
     </div>
 
     <!-- CATÁLOGO -->
@@ -29,6 +36,7 @@
         <div class="panel-acciones">
           <button type="button" class="btn-secundario" data-ir-seccion="seccionHuerto">↓ Mi huerto</button>
           <button type="button" class="btn-secundario" data-ir-seccion="seccionNotas">Mis notas</button>
+          <button type="button" class="btn-secundario" data-ir-seccion="seccionPlano">Plano</button>
         </div>
 
         <div class="filtros">
@@ -97,6 +105,7 @@
           <button id="btnInicioDesdeHuerto" type="button" class="btn-secundario">Volver al inicio</button>
           <button type="button" class="btn-secundario" data-ir-seccion="seccionCatalogo">↑ Catálogo</button>
           <button type="button" class="btn-secundario" data-ir-seccion="seccionNotas">↓ Mis notas</button>
+          <button type="button" class="btn-secundario" data-ir-seccion="seccionPlano">Plano</button>
         </div>
 
         <form id="formHuerto" class="form-huerto">
@@ -139,6 +148,7 @@
         <div class="panel-acciones">
           <button type="button" class="btn-secundario" data-ir-seccion="seccionCatalogo">↑ Catálogo</button>
           <button type="button" class="btn-secundario" data-ir-seccion="seccionHuerto">↑ Mi huerto</button>
+          <button type="button" class="btn-secundario" data-ir-seccion="seccionPlano">Plano</button>
         </div>
 
         <form id="formMisNotas" class="form-huerto">
@@ -186,6 +196,54 @@
         <div id="contenedorMisNotasDia" class="grid"></div>
       </section>
     </details>
+
+    <!-- UBICAR PLANO -->
+    <details id="seccionPlano" class="panel-seccion">
+      <summary>Ubicar plano</summary>
+      <section id="ubicacionPlano" class="panel">
+        <h2>🗺️ Ubicar plano</h2>
+        <div class="panel-acciones">
+          <button type="button" class="btn-secundario" data-ir-seccion="seccionCatalogo">↑ Catálogo</button>
+          <button type="button" class="btn-secundario" data-ir-seccion="seccionHuerto">↑ Mi huerto</button>
+          <button type="button" class="btn-secundario" data-ir-seccion="seccionNotas">↑ Mis notas</button>
+        </div>
+
+        <form id="formPlano" class="form-huerto">
+          <label>
+            URL del plano (opcional)
+            <input type="text" id="planoUrl" placeholder="https://... o /img/..." />
+          </label>
+
+          <label>
+            Subir imagen del plano
+            <input type="file" id="planoArchivo" accept="image/*" />
+          </label>
+
+          <label>
+            Opacidad de imagen aérea
+            <input type="range" id="planoOpacidad" min="0.1" max="1" step="0.05" value="0.65" />
+          </label>
+
+          <textarea id="planoNotas" placeholder="Notas de ubicación (sectores, orientación, referencias)"></textarea>
+
+          <div class="acciones-form-plano">
+            <button type="submit">Guardar plano</button>
+            <button id="btnCentrarPlano" type="button" class="btn-secundario">Centrar vista</button>
+            <button id="btnRestaurarPlano" type="button" class="btn-secundario">Restaurar puntos base</button>
+          </div>
+        </form>
+
+        <p class="resumen plano-ayuda">
+          Editá el plano moviendo cada marcador. Amarillo: límite del solar (A-B-C-D). Rojo: casa principal (e-l). Verde: pérgola (k-l-m-n) y casa de Aníbal (o-p-q-r).
+        </p>
+
+        <div id="planoMapa" class="plano-mapa" aria-label="Mapa del plano del solar"></div>
+
+        <pre id="planoCoordenadas" class="plano-coordenadas"></pre>
+
+        <div id="contenedorPlano" class="grid"></div>
+      </section>
+    </details>
   </main>
 
   <!-- MODAL -->
@@ -206,6 +264,11 @@
     window.SUPABASE_URL = "https://rrlwxequlpsrkaukwqhe.supabase.co";
     window.SUPABASE_ANON_KEY = "sb_publishable_M_X5znpBtlEUp7p4TG87Jw_fotW6kf4";
   </script>
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="main.js"></script>
 </body>

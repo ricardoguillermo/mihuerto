@@ -42,6 +42,18 @@ const botonesIrSeccion = document.querySelectorAll("[data-ir-seccion]");
 const seccionCatalogo = document.getElementById("seccionCatalogo");
 const seccionHuerto = document.getElementById("seccionHuerto");
 const seccionNotas = document.getElementById("seccionNotas");
+const seccionPlano = document.getElementById("seccionPlano");
+
+const formPlano = document.getElementById("formPlano");
+const planoUrl = document.getElementById("planoUrl");
+const planoArchivo = document.getElementById("planoArchivo");
+const planoOpacidad = document.getElementById("planoOpacidad");
+const planoNotas = document.getElementById("planoNotas");
+const planoMapa = document.getElementById("planoMapa");
+const planoCoordenadas = document.getElementById("planoCoordenadas");
+const btnCentrarPlano = document.getElementById("btnCentrarPlano");
+const btnRestaurarPlano = document.getElementById("btnRestaurarPlano");
+const contenedorPlano = document.getElementById("contenedorPlano");
 
 const formMisNotas = document.getElementById("formMisNotas");
 const misNotasFecha = document.getElementById("misNotasFecha");
@@ -70,6 +82,7 @@ const STORAGE_MIGRACION_HUERTO_KEY = "miHuertoMigradoASupabase";
 const STORAGE_MIGRACION_PLANTAS_KEY = "miPlantasMigradosASupabase";
 const STORAGE_ANOTACIONES_HUERTO_KEY = "miHuertoAnotacionesCalendarioSiembra";
 const STORAGE_MIS_NOTAS_KEY = "misNotasCalendarioSiembra";
+const STORAGE_PLANO_KEY = "planoSolarCalendarioSiembra";
 
 // Completá estos valores para activar persistencia en Supabase.
 const SUPABASE_URL = window.SUPABASE_URL || "";
@@ -91,6 +104,49 @@ let reconocimientoVozNotaActivo = null;
 let grabadoraAudioNota = null;
 let temporizadorAudioNota = null;
 let audioNotaTemporal = "";
+let estadoPlano = null;
+let mapaPlano = null;
+let capaLimiteSolar = null;
+let capaCasaPrincipal = null;
+let capaPergola = null;
+let capaCasaAnibal = null;
+let capaImagenPlano = null;
+let marcadoresPlano = {};
+
+const PUNTOS_POR_ESTRUCTURA = {
+  limiteSolar: ["A", "B", "C", "D"],
+  casaPrincipal: ["e", "f", "g", "h", "i", "j", "k", "l"],
+  pergola: ["k", "l", "m", "n"],
+  casaAnibal: ["o", "p", "q", "r"]
+};
+
+const PLANO_BASE = {
+  centro: [-34.76513632472459, -55.64704034899056],
+  zoom: 20,
+  opacidadImagen: 0.65,
+  notas: "",
+  imagenUrl: "",
+  puntos: {
+    A: [-34.76514658125373, -55.64712791388836],
+    B: [-34.76512606819545, -55.64695278409277],
+    C: [-34.765607, -55.646948],
+    D: [-34.765632, -55.647136],
+    e: [-34.765312, -55.647042],
+    f: [-34.765306, -55.646999],
+    g: [-34.765259, -55.646993],
+    h: [-34.765238, -55.646963],
+    i: [-34.765372, -55.646936],
+    j: [-34.765423, -55.646972],
+    k: [-34.765452, -55.647026],
+    l: [-34.765362, -55.647068],
+    m: [-34.765507, -55.647014],
+    n: [-34.765511, -55.647085],
+    o: [-34.765531, -55.647003],
+    p: [-34.765520, -55.646926],
+    q: [-34.765584, -55.646913],
+    r: [-34.765596, -55.646993]
+  }
+};
 
 function debeUsarNubeHuerto() {
   return usaNubeHuerto && nubeHuertoDisponible;
@@ -218,6 +274,355 @@ function hoySinHora() {
 function diasEntreFechas(fechaObjetivo, fechaBase = hoySinHora()) {
   const msPorDia = 1000 * 60 * 60 * 24;
   return Math.round((fechaObjetivo.getTime() - fechaBase.getTime()) / msPorDia);
+}
+
+function clonarPlanoBase() {
+  return JSON.parse(JSON.stringify(PLANO_BASE));
+}
+
+function esCoordenadaValida(valor) {
+  return Array.isArray(valor)
+    && valor.length === 2
+    && Number.isFinite(Number(valor[0]))
+    && Number.isFinite(Number(valor[1]));
+}
+
+function normalizarEstadoPlano(estado) {
+  const base = clonarPlanoBase();
+  if (!estado || typeof estado !== "object") return base;
+
+  const puntos = { ...base.puntos };
+  Object.entries(estado.puntos || {}).forEach(([clave, coords]) => {
+    if (puntos[clave] && esCoordenadaValida(coords)) {
+      puntos[clave] = [Number(coords[0]), Number(coords[1])];
+    }
+  });
+
+  const centroValido = esCoordenadaValida(estado.centro)
+    ? [Number(estado.centro[0]), Number(estado.centro[1])]
+    : base.centro;
+
+  const zoom = Number.isFinite(Number(estado.zoom))
+    ? Number(estado.zoom)
+    : base.zoom;
+
+  const opacidadImagen = Number.isFinite(Number(estado.opacidadImagen))
+    ? Math.min(1, Math.max(0.1, Number(estado.opacidadImagen)))
+    : base.opacidadImagen;
+
+  return {
+    centro: centroValido,
+    zoom,
+    opacidadImagen,
+    notas: String(estado.notas || ""),
+    imagenUrl: String(estado.imagenUrl || ""),
+    puntos
+  };
+}
+
+function cargarPlanoLocal() {
+  const guardado = localStorage.getItem(STORAGE_PLANO_KEY);
+  if (!guardado) return clonarPlanoBase();
+
+  try {
+    return normalizarEstadoPlano(JSON.parse(guardado));
+  } catch {
+    return clonarPlanoBase();
+  }
+}
+
+function guardarPlanoLocal(estado) {
+  guardarEnStorageSeguro(STORAGE_PLANO_KEY, JSON.stringify(estado), "el plano del solar");
+}
+
+function tipoPuntoPlano(nombrePunto) {
+  if (PUNTOS_POR_ESTRUCTURA.limiteSolar.includes(nombrePunto)) return "limite";
+  if (PUNTOS_POR_ESTRUCTURA.casaAnibal.includes(nombrePunto)) return "anibal";
+  if (["m", "n"].includes(nombrePunto)) return "pergola";
+  return "casa";
+}
+
+function iconoPuntoPlano(tipo) {
+  return window.L.divIcon({
+    className: "",
+    html: `<span class="punto-icon punto-icon--${tipo}"></span>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
+}
+
+function boundsDePlano() {
+  const coordenadas = Object.values(estadoPlano?.puntos || {})
+    .filter(esCoordenadaValida)
+    .map(([lat, lng]) => window.L.latLng(lat, lng));
+
+  if (!coordenadas.length) return null;
+  return window.L.latLngBounds(coordenadas);
+}
+
+function renderCoordenadasPlano() {
+  if (!planoCoordenadas || !estadoPlano) return;
+
+  const formatear = (nombre) => {
+    const [lat, lng] = estadoPlano.puntos[nombre] || [0, 0];
+    return `${nombre}: ${lat.toFixed(12)}, ${lng.toFixed(12)}`;
+  };
+
+  const texto = [
+    "Limite del solar (polilinea)",
+    ...PUNTOS_POR_ESTRUCTURA.limiteSolar.map(formatear),
+    "",
+    "Casa principal (poligono)",
+    ...PUNTOS_POR_ESTRUCTURA.casaPrincipal.map(formatear),
+    "",
+    "Pergola (poligono)",
+    ...PUNTOS_POR_ESTRUCTURA.pergola.map(formatear),
+    "",
+    "Casa de Anibal (poligono)",
+    ...PUNTOS_POR_ESTRUCTURA.casaAnibal.map(formatear)
+  ].join("\n");
+
+  planoCoordenadas.textContent = texto;
+}
+
+function renderResumenPlano() {
+  if (!contenedorPlano || !estadoPlano) return;
+
+  const nota = estadoPlano.notas.trim()
+    ? escaparHtml(estadoPlano.notas.trim())
+    : "Sin notas guardadas.";
+
+  const imagen = estadoPlano.imagenUrl
+    ? `<img src="${estadoPlano.imagenUrl}" alt="Plano de referencia">`
+    : "<div class=\"card-placeholder\">Sin imagen aérea cargada</div>";
+
+  contenedorPlano.innerHTML = `
+    <article class="card nota-card">
+      ${imagen}
+      <div class="card-body">
+        <h3>Plano del solar</h3>
+        <p><strong>Puntos:</strong> ${Object.keys(estadoPlano.puntos).length}</p>
+        <p><strong>Opacidad imagen:</strong> ${Math.round((estadoPlano.opacidadImagen || 0.65) * 100)}%</p>
+        <p><strong>Notas:</strong> ${nota}</p>
+      </div>
+    </article>
+  `;
+}
+
+function actualizarImagenPlanoEnMapa() {
+  if (!mapaPlano || !window.L) return;
+
+  if (capaImagenPlano) {
+    mapaPlano.removeLayer(capaImagenPlano);
+    capaImagenPlano = null;
+  }
+
+  if (!estadoPlano?.imagenUrl) return;
+
+  const bounds = boundsDePlano();
+  if (!bounds || !bounds.isValid()) return;
+
+  capaImagenPlano = window.L.imageOverlay(estadoPlano.imagenUrl, bounds.pad(0.22), {
+    opacity: estadoPlano.opacidadImagen || 0.65
+  });
+  capaImagenPlano.addTo(mapaPlano);
+  capaImagenPlano.bringToBack();
+}
+
+function actualizarCapasPlano() {
+  if (!mapaPlano || !estadoPlano || !window.L) return;
+
+  if (capaLimiteSolar) mapaPlano.removeLayer(capaLimiteSolar);
+  if (capaCasaPrincipal) mapaPlano.removeLayer(capaCasaPrincipal);
+  if (capaPergola) mapaPlano.removeLayer(capaPergola);
+  if (capaCasaAnibal) mapaPlano.removeLayer(capaCasaAnibal);
+
+  Object.values(marcadoresPlano).forEach((marcador) => {
+    mapaPlano.removeLayer(marcador);
+  });
+  marcadoresPlano = {};
+
+  const p = estadoPlano.puntos;
+  const latLngs = (nombres) => nombres.map((nombre) => p[nombre]);
+
+  capaLimiteSolar = window.L.polyline(latLngs(PUNTOS_POR_ESTRUCTURA.limiteSolar), {
+    color: "#f0c419",
+    weight: 4,
+    opacity: 0.95
+  }).addTo(mapaPlano);
+
+  capaCasaPrincipal = window.L.polygon(latLngs(PUNTOS_POR_ESTRUCTURA.casaPrincipal), {
+    color: "#d64541",
+    weight: 3,
+    fillColor: "#d64541",
+    fillOpacity: 0.22
+  }).addTo(mapaPlano);
+
+  capaPergola = window.L.polygon(latLngs(PUNTOS_POR_ESTRUCTURA.pergola), {
+    color: "#2ca25f",
+    weight: 3,
+    fillColor: "#2ca25f",
+    fillOpacity: 0.28
+  }).addTo(mapaPlano);
+
+  capaCasaAnibal = window.L.polygon(latLngs(PUNTOS_POR_ESTRUCTURA.casaAnibal), {
+    color: "#2a8f6b",
+    weight: 3,
+    fillColor: "#2a8f6b",
+    fillOpacity: 0.23
+  }).addTo(mapaPlano);
+
+  Object.entries(p).forEach(([nombre, coordenada]) => {
+    const tipo = tipoPuntoPlano(nombre);
+    const marcador = window.L.marker(coordenada, {
+      draggable: true,
+      icon: iconoPuntoPlano(tipo),
+      title: `Punto ${nombre}`
+    });
+
+    marcador.bindTooltip(nombre, {
+      permanent: true,
+      direction: "top",
+      className: "punto-etiqueta",
+      offset: [0, -12]
+    });
+
+    marcador.on("dragend", () => {
+      const { lat, lng } = marcador.getLatLng();
+      estadoPlano.puntos[nombre] = [lat, lng];
+      guardarPlanoLocal(estadoPlano);
+      actualizarCapasPlano();
+      renderCoordenadasPlano();
+      renderResumenPlano();
+    });
+
+    marcador.addTo(mapaPlano);
+    marcadoresPlano[nombre] = marcador;
+  });
+
+  actualizarImagenPlanoEnMapa();
+  renderCoordenadasPlano();
+  renderResumenPlano();
+}
+
+function centrarPlanoEnVista() {
+  if (!mapaPlano) return;
+
+  const bounds = boundsDePlano();
+  if (bounds && bounds.isValid()) {
+    mapaPlano.fitBounds(bounds.pad(0.35));
+    return;
+  }
+
+  mapaPlano.setView(estadoPlano?.centro || PLANO_BASE.centro, estadoPlano?.zoom || PLANO_BASE.zoom);
+}
+
+async function manejarSubmitPlano(evento) {
+  evento.preventDefault();
+  if (!estadoPlano) return;
+
+  let imagenFinal = String(planoUrl?.value || "").trim();
+
+  const archivoPlano = planoArchivo?.files?.[0];
+  if (archivoPlano) {
+    imagenFinal = await leerArchivoComoDataURL(archivoPlano);
+  }
+
+  estadoPlano.notas = String(planoNotas?.value || "").trim();
+  estadoPlano.opacidadImagen = Number(planoOpacidad?.value || estadoPlano.opacidadImagen || 0.65);
+  estadoPlano.imagenUrl = imagenFinal || estadoPlano.imagenUrl || "";
+
+  guardarPlanoLocal(estadoPlano);
+  actualizarImagenPlanoEnMapa();
+  renderResumenPlano();
+
+  if (planoArchivo) {
+    planoArchivo.value = "";
+  }
+}
+
+function restaurarPlanoBase() {
+  const confirmar = window.confirm("Se restauraran los puntos base del plano. ¿Continuar?");
+  if (!confirmar) return;
+
+  estadoPlano = clonarPlanoBase();
+  if (planoUrl) planoUrl.value = estadoPlano.imagenUrl;
+  if (planoNotas) planoNotas.value = estadoPlano.notas;
+  if (planoOpacidad) planoOpacidad.value = String(estadoPlano.opacidadImagen);
+  guardarPlanoLocal(estadoPlano);
+  actualizarCapasPlano();
+  centrarPlanoEnVista();
+}
+
+function inicializarPlanoSolar() {
+  if (!formPlano || !planoMapa) return;
+
+  if (!window.L) {
+    if (contenedorPlano) {
+      contenedorPlano.innerHTML = "<p class=\"resumen\">No se pudo cargar Leaflet en este momento.</p>";
+    }
+    return;
+  }
+
+  estadoPlano = cargarPlanoLocal();
+  if (planoUrl) planoUrl.value = estadoPlano.imagenUrl;
+  if (planoNotas) planoNotas.value = estadoPlano.notas;
+  if (planoOpacidad) planoOpacidad.value = String(estadoPlano.opacidadImagen || 0.65);
+
+  mapaPlano = window.L.map(planoMapa, {
+    zoomControl: true,
+    preferCanvas: true
+  });
+
+  window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 21,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(mapaPlano);
+
+  actualizarCapasPlano();
+  centrarPlanoEnVista();
+
+  mapaPlano.on("moveend", () => {
+    if (!estadoPlano) return;
+    const centro = mapaPlano.getCenter();
+    estadoPlano.centro = [centro.lat, centro.lng];
+    estadoPlano.zoom = mapaPlano.getZoom();
+    guardarPlanoLocal(estadoPlano);
+  });
+
+  formPlano.addEventListener("submit", (e) => {
+    manejarSubmitPlano(e).catch((error) => {
+      alert(`No se pudo guardar el plano: ${mensajeDesdeError(error)}`);
+    });
+  });
+
+  if (planoOpacidad) {
+    planoOpacidad.addEventListener("input", () => {
+      if (!estadoPlano) return;
+      estadoPlano.opacidadImagen = Number(planoOpacidad.value || 0.65);
+      guardarPlanoLocal(estadoPlano);
+      actualizarImagenPlanoEnMapa();
+      renderResumenPlano();
+    });
+  }
+
+  if (btnCentrarPlano) {
+    btnCentrarPlano.addEventListener("click", centrarPlanoEnVista);
+  }
+
+  if (btnRestaurarPlano) {
+    btnRestaurarPlano.addEventListener("click", restaurarPlanoBase);
+  }
+
+  if (seccionPlano) {
+    seccionPlano.addEventListener("toggle", () => {
+      if (!seccionPlano.open || !mapaPlano) return;
+
+      setTimeout(() => {
+        mapaPlano.invalidateSize();
+      }, 120);
+    });
+  }
 }
 
 function obtenerEstadoPronostico(fechaObjetivo) {
@@ -2083,7 +2488,8 @@ function obtenerDetalleSeccionPorId(idSeccion) {
   const mapa = {
     seccionCatalogo,
     seccionHuerto,
-    seccionNotas
+    seccionNotas,
+    seccionPlano
   };
   return mapa[idSeccion] || null;
 }
@@ -2092,13 +2498,19 @@ function abrirSeccion(idSeccion) {
   const destino = obtenerDetalleSeccionPorId(idSeccion);
   if (!destino) return;
 
-  [seccionCatalogo, seccionHuerto, seccionNotas]
+  [seccionCatalogo, seccionHuerto, seccionNotas, seccionPlano]
     .filter(Boolean)
     .forEach(seccion => {
       seccion.open = seccion === destino;
     });
 
   destino.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  if (destino === seccionPlano && mapaPlano) {
+    setTimeout(() => {
+      mapaPlano.invalidateSize();
+    }, 140);
+  }
 }
 
 // ============================
@@ -2460,6 +2872,7 @@ async function init() {
   await migrarHuertoLocalASupabaseSiCorresponde();
   await refrescarMiHuerto();
   asegurarFechaHuertoInicial();
+  inicializarPlanoSolar();
 
   buscador.addEventListener("input", filtrarPlantas);
   filtroMes.addEventListener("change", filtrarPlantas);
