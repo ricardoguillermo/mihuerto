@@ -628,6 +628,19 @@ function actualizarImagenPlanoEnMapa() {
     opacity: estadoPlano.opacidadImagen || 0.65
   });
   capaImagenPlano.addTo(mapaPlano);
+
+  capaImagenPlano.on("load", () => {
+    if (!estadoImagenPlano) return;
+    if (ajustandoImagenPlano) return;
+    estadoImagenPlano.textContent = estadoPlano?.imagenBounds
+      ? "Imagen cargada con encuadre manual activo."
+      : "Imagen cargada con encuadre automático por defecto.";
+  });
+
+  capaImagenPlano.on("error", () => {
+    if (!estadoImagenPlano) return;
+    estadoImagenPlano.textContent = "No se pudo renderizar la imagen en el mapa. Probá con otro archivo o reseteá el encuadre.";
+  });
 }
 
 function actualizarEstadoImagenPlano() {
@@ -1013,6 +1026,17 @@ function actualizarCapasPlano() {
 function centrarPlanoEnVista() {
   if (!mapaPlano) return;
 
+  if (estadoPlano?.imagenUrl) {
+    const boundsImagen = estadoPlano?.imagenBounds
+      ? window.L.latLngBounds(estadoPlano.imagenBounds)
+      : boundsDePlano()?.pad(0.22);
+
+    if (boundsImagen && boundsImagen.isValid()) {
+      mapaPlano.fitBounds(boundsImagen.pad(0.2));
+      return;
+    }
+  }
+
   const bounds = boundsDePlano();
   if (bounds && bounds.isValid()) {
     mapaPlano.fitBounds(bounds.pad(0.35));
@@ -1035,7 +1059,13 @@ async function manejarSubmitPlano(evento) {
 
   estadoPlano.notas = String(planoNotas?.value || "").trim();
   estadoPlano.opacidadImagen = Number(planoOpacidad?.value || estadoPlano.opacidadImagen || 0.65);
+  const cambioImagen = imagenFinal && imagenFinal !== estadoPlano.imagenUrl;
   estadoPlano.imagenUrl = imagenFinal || estadoPlano.imagenUrl || "";
+
+  if (cambioImagen) {
+    // Si cambia la imagen, volvemos al encuadre automático para evitar bounds viejos fuera de vista.
+    estadoPlano.imagenBounds = null;
+  }
 
   guardarPlanoLocal(estadoPlano);
   mostrarVistaPreviaImagenPlano(
@@ -1043,6 +1073,7 @@ async function manejarSubmitPlano(evento) {
     estadoPlano.imagenUrl.startsWith("data:") ? "Imagen cargada desde archivo local." : "Imagen cargada desde URL."
   );
   actualizarImagenPlanoEnMapa();
+  centrarPlanoEnVista();
   renderResumenPlano();
 
   if (planoArchivo) {
