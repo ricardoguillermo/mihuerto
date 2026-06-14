@@ -625,7 +625,8 @@ function actualizarImagenPlanoEnMapa() {
   const boundsFinal = estadoPlano?.imagenBounds ? bounds : bounds.pad(0.22);
 
   capaImagenPlano = window.L.imageOverlay(estadoPlano.imagenUrl, boundsFinal, {
-    opacity: estadoPlano.opacidadImagen || 0.65
+    opacity: estadoPlano.opacidadImagen || 0.65,
+    interactive: false
   });
   capaImagenPlano.addTo(mapaPlano);
 
@@ -1063,8 +1064,14 @@ async function manejarSubmitPlano(evento) {
   estadoPlano.imagenUrl = imagenFinal || estadoPlano.imagenUrl || "";
 
   if (cambioImagen) {
-    // Si cambia la imagen, volvemos al encuadre automático para evitar bounds viejos fuera de vista.
-    estadoPlano.imagenBounds = null;
+    // Al cargar una imagen nueva la hacemos visible ocupando la vista actual.
+    const boundsVisibles = mapaPlano?.getBounds();
+    estadoPlano.imagenBounds = boundsVisibles && boundsVisibles.isValid()
+      ? [
+        [boundsVisibles.getSouth(), boundsVisibles.getWest()],
+        [boundsVisibles.getNorth(), boundsVisibles.getEast()]
+      ]
+      : null;
   }
 
   guardarPlanoLocal(estadoPlano);
