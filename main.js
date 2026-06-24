@@ -2719,30 +2719,38 @@ function renderMiHuerto() {
               <textarea name="notas" placeholder="Ej: Hoy la vi más grande, regué menos...">${notasSeguro}</textarea>
             </label>
 
-            <label class="campo-foto campo-foto-principal" data-tipo-foto="principal">
-              Foto (URL o ruta)
-              <input type="text" name="fotoUrl" value="${fotoSeguro}" placeholder="/img/mi-planta.jpg o https://...">
-            </label>
+            <div class="grupo-foto grupo-foto-principal">
+              <p class="grupo-foto-titulo">Foto principal</p>
 
-            <label class="campo-foto campo-foto-principal" data-tipo-foto="principal">
-              O subir una foto
-              <input type="file" name="fotoArchivo" accept="image/*">
-            </label>
+              <label class="campo-foto campo-foto-principal" data-tipo-foto="principal">
+                Foto principal (URL o ruta)
+                <input type="text" name="fotoUrl" value="${fotoSeguro}" placeholder="/img/mi-planta.jpg o https://...">
+              </label>
 
-            <label>
-              Fecha de exposición (foto adicional)
-              <input type="date" name="fechaFotoExtra" value="${fechaFotoExtraSegura}">
-            </label>
+              <label class="campo-foto campo-foto-principal" data-tipo-foto="principal">
+                O subir foto principal
+                <input type="file" name="fotoArchivo" accept="image/*">
+              </label>
+            </div>
 
-            <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
-              Foto adicional (URL o ruta)
-              <input type="text" name="fotoExtraUrl" placeholder="/img/exposicion.jpg o https://...">
-            </label>
+            <div class="grupo-foto grupo-foto-exposicion">
+              <p class="grupo-foto-titulo">Foto de exposición (adicional)</p>
 
-            <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
-              O subir foto adicional
-              <input type="file" name="fotoExtraArchivo" accept="image/*">
-            </label>
+              <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
+                Fecha de exposición
+                <input type="date" name="fechaFotoExtra" value="${fechaFotoExtraSegura}">
+              </label>
+
+              <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
+                Foto de exposición (URL o ruta)
+                <input type="text" name="fotoExtraUrl" placeholder="/img/exposicion.jpg o https://...">
+              </label>
+
+              <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
+                O subir foto de exposición
+                <input type="file" name="fotoExtraArchivo" accept="image/*">
+              </label>
+            </div>
 
             <label class="opcion-check opcion-check-anotacion" for="quitarFoto-${idSeguro}">
               <input type="checkbox" name="quitarFoto" id="quitarFoto-${idSeguro}">
