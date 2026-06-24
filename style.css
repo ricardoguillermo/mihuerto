@@ -623,6 +623,33 @@ button:hover {
   color: #2c3f2c;
 }
 
+.campo-foto {
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.campo-foto-principal {
+  background: #edf8ec;
+  border-color: #d3e8d1;
+}
+
+.campo-foto-accesoria {
+  background: #fdf4e9;
+  border-color: #f2ddbf;
+}
+
+.campo-foto-principal.foto-editando {
+  background: #d7f2d5;
+  border-color: #7bb87a;
+}
+
+.campo-foto-accesoria.foto-editando {
+  background: #ffe7c9;
+  border-color: #de9d54;
+}
+
 .opcion-check-anotacion {
   padding: 8px 10px;
   margin-top: 2px;

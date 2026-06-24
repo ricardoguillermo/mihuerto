@@ -2719,12 +2719,12 @@ function renderMiHuerto() {
               <textarea name="notas" placeholder="Ej: Hoy la vi más grande, regué menos...">${notasSeguro}</textarea>
             </label>
 
-            <label>
+            <label class="campo-foto campo-foto-principal" data-tipo-foto="principal">
               Foto (URL o ruta)
               <input type="text" name="fotoUrl" value="${fotoSeguro}" placeholder="/img/mi-planta.jpg o https://...">
             </label>
 
-            <label>
+            <label class="campo-foto campo-foto-principal" data-tipo-foto="principal">
               O subir una foto
               <input type="file" name="fotoArchivo" accept="image/*">
             </label>
@@ -2734,12 +2734,12 @@ function renderMiHuerto() {
               <input type="date" name="fechaFotoExtra" value="${fechaFotoExtraSegura}">
             </label>
 
-            <label>
+            <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
               Foto adicional (URL o ruta)
               <input type="text" name="fotoExtraUrl" placeholder="/img/exposicion.jpg o https://...">
             </label>
 
-            <label>
+            <label class="campo-foto campo-foto-accesoria" data-tipo-foto="accesoria">
               O subir foto adicional
               <input type="file" name="fotoExtraArchivo" accept="image/*">
             </label>
@@ -2750,7 +2750,7 @@ function renderMiHuerto() {
             </label>
 
             <div class="acciones">
-              <button type="submit" class="btn-secundario">Guardar anotación</button>
+              <button type="submit" class="btn-secundario">cardar cambio</button>
             </div>
           </form>
 
@@ -2791,7 +2791,40 @@ function renderMiHuerto() {
       </div>
     `;
 
+    const formularioAnotacion = card.querySelector(".form-anotacion[data-id]");
+    if (formularioAnotacion) {
+      actualizarEstadoEdicionFotos(formularioAnotacion);
+      ["input", "change"].forEach(tipoEvento => {
+        formularioAnotacion.addEventListener(tipoEvento, () => {
+          actualizarEstadoEdicionFotos(formularioAnotacion);
+        });
+      });
+    }
+
     contenedorHuerto.appendChild(card);
+  });
+}
+
+function actualizarEstadoEdicionFotos(formulario) {
+  if (!formulario) return;
+
+  const fotoActual = String(formulario.dataset.fotoActual || "").trim();
+  const fotoUrlActual = String(formulario.elements.fotoUrl?.value || "").trim();
+  const archivoPrincipal = formulario.elements.fotoArchivo?.files?.[0];
+  const quitarFoto = Boolean(formulario.elements.quitarFoto?.checked);
+
+  const fotoExtraUrl = String(formulario.elements.fotoExtraUrl?.value || "").trim();
+  const archivoExtra = formulario.elements.fotoExtraArchivo?.files?.[0];
+
+  const edicionPrincipal = quitarFoto || Boolean(archivoPrincipal) || fotoUrlActual !== fotoActual;
+  const edicionAccesoria = Boolean(archivoExtra) || Boolean(fotoExtraUrl);
+
+  formulario.querySelectorAll('[data-tipo-foto="principal"]').forEach((campo) => {
+    campo.classList.toggle("foto-editando", edicionPrincipal);
+  });
+
+  formulario.querySelectorAll('[data-tipo-foto="accesoria"]').forEach((campo) => {
+    campo.classList.toggle("foto-editando", edicionAccesoria);
   });
 }
 
